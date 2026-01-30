@@ -1,0 +1,81 @@
+import React from 'react';
+import { LayoutDashboard, TrendingUp, Map, PieChart, Briefcase, Activity, Menu } from 'lucide-react';
+
+interface SidebarProps {
+  activeTab: string;
+  setActiveTab: (tab: string) => void;
+  isMobileOpen: boolean;
+  setIsMobileOpen: (open: boolean) => void;
+}
+
+export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isMobileOpen, setIsMobileOpen }) => {
+  const menuItems = [
+    { id: 'dashboard', label: 'Visão Geral', icon: LayoutDashboard },
+    { id: 'competitive', label: 'Posicionamento Competitivo', icon: PieChart },
+    { id: 'trends', label: 'Tendências de Mercado', icon: TrendingUp },
+    { id: 'regional', label: 'Análise Regional', icon: Map },
+    { id: 'operational', label: 'Performance Operacional', icon: Activity },
+    { id: 'financial', label: 'Financeiro & Contábil', icon: Briefcase },
+  ];
+
+  return (
+    <>
+      {/* Mobile Backdrop */}
+      {isMobileOpen && (
+        <div 
+          className="fixed inset-0 bg-slate-900/50 z-20 lg:hidden"
+          onClick={() => setIsMobileOpen(false)}
+        />
+      )}
+
+      {/* Sidebar */}
+      <aside 
+        className={`fixed top-0 left-0 z-30 h-full w-64 bg-slate-900 text-white transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:block ${
+          isMobileOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
+      >
+        <div className="flex h-16 items-center justify-between px-6 bg-slate-950">
+          <span className="text-xl font-bold tracking-tight text-blue-400">Consórcio<span className="text-white">Intel</span></span>
+          <button onClick={() => setIsMobileOpen(false)} className="lg:hidden text-slate-400">
+            <Menu size={20} />
+          </button>
+        </div>
+
+        <nav className="p-4 space-y-2">
+          {menuItems.map((item) => {
+            const Icon = item.icon;
+            return (
+              <button
+                key={item.id}
+                onClick={() => {
+                  setActiveTab(item.id);
+                  setIsMobileOpen(false);
+                }}
+                className={`flex w-full items-center gap-3 rounded-lg px-4 py-3 text-sm font-medium transition-colors ${
+                  activeTab === item.id
+                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50'
+                    : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+                }`}
+              >
+                <Icon size={18} />
+                {item.label}
+              </button>
+            );
+          })}
+        </nav>
+
+        <div className="absolute bottom-0 w-full p-6 border-t border-slate-800">
+          <div className="rounded-lg bg-slate-800 p-4">
+            <h4 className="text-xs font-semibold uppercase text-slate-500 mb-2">Status da API</h4>
+            <div className="flex items-center gap-2">
+              <div className={`h-2.5 w-2.5 rounded-full ${process.env.API_KEY ? 'bg-green-500' : 'bg-red-500'}`}></div>
+              <span className="text-xs text-slate-300">
+                {process.env.API_KEY ? 'Gemini AI Conectado' : 'Chave API Ausente'}
+              </span>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </>
+  );
+};
