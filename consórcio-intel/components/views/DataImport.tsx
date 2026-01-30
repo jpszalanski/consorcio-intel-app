@@ -1,6 +1,6 @@
 
 import React, { useState, useRef } from 'react';
-import { Upload, FileText, CheckCircle2, AlertCircle, Trash2, Database, BrainCircuit, Search, Map, LayoutDashboard, FileSpreadsheet, X, AlertTriangle, FileStack, RefreshCw, Loader2 } from 'lucide-react';
+import { Upload, FileText, CheckCircle2, AlertCircle, Trash2, Database, BrainCircuit, Search, Map as MapIcon, LayoutDashboard, FileSpreadsheet, X, AlertTriangle, FileStack, RefreshCw, Loader2 } from 'lucide-react';
 import { dataStore } from '../../services/dataStore';
 import { ImportedFileLog, Administrator } from '../../types';
 
@@ -53,7 +53,7 @@ export const DataImport: React.FC = () => {
     // 1. Dados por UF - Layout específico do BACEN
     // Campos: "UF", "Qtde cotistas ativos contemplados por lance", "Qtde adesões no trimestre"
     if (
-      name.includes('dadosporuf') || 
+      name.includes('dadosporuf') ||
       (h.some(x => x === 'uf') && h.some(x => x.includes('contempladosporlance'))) ||
       (h.some(x => x === 'uf') && h.some(x => x.includes('sorteio')))
     ) {
@@ -62,10 +62,10 @@ export const DataImport: React.FC = () => {
 
     // 2. Dados Consolidados (Segmentos ou Grupos)
     if (
-      name.includes('segmentos') || 
-      name.includes('consolidado') || 
-      name.includes('grupos') || 
-      h.includes('nomeadministradora') || 
+      name.includes('segmentos') ||
+      name.includes('consolidado') ||
+      name.includes('grupos') ||
+      h.includes('nomeadministradora') ||
       h.includes('segmento')
     ) {
       return 'consolidated';
@@ -88,16 +88,16 @@ export const DataImport: React.FC = () => {
         try {
           const text = e.target?.result as string;
           const lines = text.split('\n');
-          
+
           if (lines.length < 2) {
-             resolve({ file, type: null, data: [], status: 'error', errorMsg: 'Arquivo vazio' });
-             return;
+            resolve({ file, type: null, data: [], status: 'error', errorMsg: 'Arquivo vazio' });
+            return;
           }
 
           const firstLine = lines[0];
           const separator = firstLine.includes(';') ? ';' : ',';
           const headers = firstLine.split(separator).map(h => h.trim().replace(/^"|"$/g, ''));
-          
+
           const detectedType = detectLayout(headers, file.name);
           const isDuplicate = !!dataStore.isFileImported(file.name);
 
@@ -108,7 +108,7 @@ export const DataImport: React.FC = () => {
               return headers.reduce((obj: any, header, i) => {
                 let val = values[i]?.trim().replace(/^"|"$/g, '');
                 if (val && /^-?[\d\.]+,\d+$/.test(val)) {
-                   val = val.replace(/\./g, '').replace(',', '.');
+                  val = val.replace(/\./g, '').replace(',', '.');
                 }
                 const numVal = Number(val);
                 obj[header] = isNaN(numVal) ? val : numVal;
@@ -143,7 +143,7 @@ export const DataImport: React.FC = () => {
     if (readyFiles.length === 0) return;
 
     setIsSaving(true);
-    
+
     // Pequeno delay para garantir que o loader apareça - Corrigido para garantir tipagem correta do Promise
     await new Promise<void>((resolve) => {
       setTimeout(() => {
@@ -198,23 +198,22 @@ export const DataImport: React.FC = () => {
         </p>
       </div>
 
-      <div 
-        className={`relative border-2 border-dashed rounded-2xl p-12 transition-all cursor-pointer flex flex-col items-center justify-center gap-4 group ${
-          dragActive ? 'border-blue-500 bg-blue-50/50' : 'border-slate-300 hover:border-blue-400 hover:bg-slate-50'
-        }`}
+      <div
+        className={`relative border-2 border-dashed rounded-2xl p-12 transition-all cursor-pointer flex flex-col items-center justify-center gap-4 group ${dragActive ? 'border-blue-500 bg-blue-50/50' : 'border-slate-300 hover:border-blue-400 hover:bg-slate-50'
+          }`}
         onDragEnter={handleDrag}
         onDragLeave={handleDrag}
         onDragOver={handleDrag}
         onDrop={handleDrop}
         onClick={() => !isSaving && fileInputRef.current?.click()}
       >
-        <input 
-          ref={fileInputRef} 
-          type="file" 
-          accept=".csv,.txt" 
-          multiple 
-          className="hidden" 
-          onChange={handleFileInput} 
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".csv,.txt"
+          multiple
+          className="hidden"
+          onChange={handleFileInput}
           disabled={isSaving}
         />
         <div className="w-16 h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center shadow-sm group-hover:scale-110 transition-transform">
@@ -234,15 +233,15 @@ export const DataImport: React.FC = () => {
               Fila de Importação ({processedQueue.length})
             </h3>
           </div>
-          
+
           <div className="divide-y divide-slate-100 max-h-[400px] overflow-y-auto custom-scrollbar">
             {processedQueue.map((item, idx) => (
               <div key={idx} className="p-4 flex items-center justify-between hover:bg-slate-50">
                 <div className="flex items-center gap-4">
                   <div className="bg-slate-100 p-2 rounded-lg">
                     {item.status === 'ready' ? <CheckCircle2 className="text-emerald-500" size={20} /> :
-                     item.status === 'duplicate' ? <AlertTriangle className="text-amber-500" size={20} /> :
-                     <AlertCircle className="text-red-500" size={20} />}
+                      item.status === 'duplicate' ? <AlertTriangle className="text-amber-500" size={20} /> :
+                        <AlertCircle className="text-red-500" size={20} />}
                   </div>
                   <div>
                     <p className="font-medium text-slate-900 text-sm">{item.file.name}</p>
@@ -286,12 +285,12 @@ export const DataImport: React.FC = () => {
             </h3>
             <p className="text-slate-600 mb-6">Arquivos com este nome já foram importados. Deseja reprocessá-los e atualizar os dados?</p>
             <div className="flex gap-3 justify-end">
-              <button onClick={() => { 
-                setProcessedQueue(prev => prev.map(p => p.status === 'duplicate' ? {...p, status: 'error', errorMsg: 'Pulado'} : p));
+              <button onClick={() => {
+                setProcessedQueue(prev => prev.map(p => p.status === 'duplicate' ? { ...p, status: 'error', errorMsg: 'Pulado' } : p));
                 setShowConfirmModal(false);
               }} className="px-4 py-2 text-slate-600 font-medium">Ignorar</button>
               <button onClick={() => {
-                setProcessedQueue(prev => prev.map(p => p.status === 'duplicate' ? {...p, status: 'ready'} : p));
+                setProcessedQueue(prev => prev.map(p => p.status === 'duplicate' ? { ...p, status: 'ready' } : p));
                 setShowConfirmModal(false);
               }} className="px-4 py-2 bg-amber-600 text-white font-bold rounded-lg">Sim, Reprocessar</button>
             </div>
