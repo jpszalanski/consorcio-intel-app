@@ -1,5 +1,6 @@
+
 import React from 'react';
-import { LayoutDashboard, TrendingUp, Map, PieChart, Briefcase, Activity, Menu } from 'lucide-react';
+import { LayoutDashboard, TrendingUp, Map, PieChart, Briefcase, Activity, Menu, Database } from 'lucide-react';
 
 interface SidebarProps {
   activeTab: string;
@@ -14,8 +15,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isMob
     { id: 'competitive', label: 'Posicionamento Competitivo', icon: PieChart },
     { id: 'trends', label: 'Tendências de Mercado', icon: TrendingUp },
     { id: 'regional', label: 'Análise Regional', icon: Map },
+    { id: 'import', label: 'Importar Dados', icon: Database },
     { id: 'operational', label: 'Performance Operacional', icon: Activity },
-    { id: 'financial', label: 'Financeiro & Contábil', icon: Briefcase },
   ];
 
   return (
@@ -34,14 +35,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isMob
           isMobileOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
-        <div className="flex h-16 items-center justify-between px-6 bg-slate-950">
+        <div className="flex h-16 items-center justify-between px-6 bg-slate-950 border-b border-slate-800/50">
           <span className="text-xl font-bold tracking-tight text-blue-400">Consórcio<span className="text-white">Intel</span></span>
           <button onClick={() => setIsMobileOpen(false)} className="lg:hidden text-slate-400">
             <Menu size={20} />
           </button>
         </div>
 
-        <nav className="p-4 space-y-2">
+        <nav className="p-4 space-y-2 mt-4">
           {menuItems.map((item) => {
             const Icon = item.icon;
             return (
@@ -51,10 +52,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isMob
                   setActiveTab(item.id);
                   setIsMobileOpen(false);
                 }}
-                className={`flex w-full items-center gap-3 rounded-lg px-4 py-3 text-sm font-medium transition-colors ${
+                className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-all ${
                   activeTab === item.id
-                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50'
-                    : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+                    ? 'bg-blue-600 text-white shadow-xl shadow-blue-900/50 scale-105'
+                    : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'
                 }`}
               >
                 <Icon size={18} />
@@ -64,13 +65,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isMob
           })}
         </nav>
 
-        <div className="absolute bottom-0 w-full p-6 border-t border-slate-800">
-          <div className="rounded-lg bg-slate-800 p-4">
-            <h4 className="text-xs font-semibold uppercase text-slate-500 mb-2">Status da API</h4>
+        <div className="absolute bottom-0 w-full p-6 border-t border-slate-800 bg-slate-950/50">
+          <div className="rounded-xl bg-slate-800/50 p-4 border border-slate-700/50">
+            <h4 className="text-[10px] font-bold uppercase text-slate-500 mb-2 tracking-widest">Status da API</h4>
             <div className="flex items-center gap-2">
-              <div className={`h-2.5 w-2.5 rounded-full ${process.env.API_KEY ? 'bg-green-500' : 'bg-red-500'}`}></div>
-              <span className="text-xs text-slate-300">
-                {process.env.API_KEY ? 'Gemini AI Conectado' : 'Chave API Ausente'}
+              <div className={`h-2 w-2 rounded-full ${process.env.API_KEY ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
+              <span className="text-xs font-medium text-slate-300">
+                {process.env.API_KEY ? 'Gemini 3 Pro Ativo' : 'Chave Offline'}
               </span>
             </div>
           </div>

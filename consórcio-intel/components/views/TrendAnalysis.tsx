@@ -1,33 +1,32 @@
+
 import React, { useState, useMemo } from 'react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { predictDemand } from '../../services/geminiService';
-import { SegmentType } from '../../types';
+import { BacenSegment } from '../../types';
 import { BrainCircuit, TrendingUp } from 'lucide-react';
 import { PeriodSelector, PeriodOption } from '../common/PeriodSelector';
 
+// Mock Data aligned with Segments 1-6
 const mockTrendData = [
-  { quarter: 'Q1 2023', imoveis: 100, veiculos: 80, servicos: 20 },
-  { quarter: 'Q2 2023', imoveis: 105, veiculos: 85, servicos: 22 },
-  { quarter: 'Q3 2023', imoveis: 110, veiculos: 82, servicos: 25 },
-  { quarter: 'Q4 2023', imoveis: 115, veiculos: 90, servicos: 30 },
-  { quarter: 'Q1 2024', imoveis: 118, veiculos: 92, servicos: 28 },
-  { quarter: 'Q2 2024', imoveis: 125, veiculos: 95, servicos: 35 },
-  { quarter: 'Q3 2024', imoveis: 130, veiculos: 98, servicos: 40 },
-  { quarter: 'Q4 2024', imoveis: 132, veiculos: 105, servicos: 45 },
-  { quarter: 'Q1 2025', imoveis: 135, veiculos: 102, servicos: 48 },
-  { quarter: 'Q2 2025', imoveis: 140, veiculos: 108, servicos: 55 },
+  { quarter: 'Q1 2023', seg1: 100, seg2: 50, seg3: 120, seg4: 80, seg6: 30 },
+  { quarter: 'Q2 2023', seg1: 105, seg2: 52, seg3: 125, seg4: 85, seg6: 32 },
+  { quarter: 'Q3 2023', seg1: 110, seg2: 55, seg3: 130, seg4: 82, seg6: 35 },
+  { quarter: 'Q4 2023', seg1: 115, seg2: 60, seg3: 135, seg4: 90, seg6: 38 },
+  { quarter: 'Q1 2024', seg1: 118, seg2: 62, seg3: 138, seg4: 92, seg6: 40 },
+  { quarter: 'Q2 2024', seg1: 125, seg2: 65, seg3: 145, seg4: 95, seg6: 45 },
+  { quarter: 'Q3 2024', seg1: 130, seg2: 68, seg3: 150, seg4: 98, seg6: 48 },
+  { quarter: 'Q4 2024', seg1: 132, seg2: 75, seg3: 155, seg4: 105, seg6: 52 },
 ];
 
 export const TrendAnalysis: React.FC = () => {
-  const [selectedSegment, setSelectedSegment] = useState<SegmentType>(SegmentType.REAL_ESTATE);
+  const [selectedSegment, setSelectedSegment] = useState<BacenSegment>(BacenSegment.IMOVEIS);
   const [prediction, setPrediction] = useState<{ prediction: string; rationale: string } | null>(null);
   const [loading, setLoading] = useState(false);
   const [period, setPeriod] = useState<PeriodOption>('all');
 
-  // Filter Logic
   const filteredData = useMemo(() => {
     switch (period) {
-      case '1q': return mockTrendData.slice(-2); // Show at least 2 points for a line segment
+      case '1q': return mockTrendData.slice(-2);
       case '1y': return mockTrendData.slice(-4);
       case 'all': return mockTrendData;
       default: return mockTrendData;
@@ -36,7 +35,6 @@ export const TrendAnalysis: React.FC = () => {
 
   const handlePredict = async () => {
     setLoading(true);
-    // We pass the filtered data so the AI analyzes the selected timeframe specifically
     const result = await predictDemand(selectedSegment, filteredData);
     setPrediction(result);
     setLoading(false);
@@ -46,20 +44,20 @@ export const TrendAnalysis: React.FC = () => {
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-slate-900">Tendências de Mercado</h2>
-          <p className="text-slate-500">Análise histórica e projeções futuras.</p>
+          <h2 className="text-2xl font-bold text-slate-900">Tendências por Segmento</h2>
+          <p className="text-slate-500">Histórico de adesões consolidado (Segmentos 1 a 6).</p>
         </div>
         <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
            <PeriodSelector value={period} onChange={setPeriod} options={['1q', '1y', 'all']} />
            <select 
-             className="bg-white border border-slate-300 text-slate-700 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2.5 shadow-sm"
+             className="bg-white border border-slate-300 text-slate-700 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2.5 shadow-sm max-w-xs"
              value={selectedSegment}
              onChange={(e) => {
-               setSelectedSegment(e.target.value as SegmentType);
+               setSelectedSegment(e.target.value as BacenSegment);
                setPrediction(null);
              }}
            >
-             {Object.values(SegmentType).map((s) => (
+             {Object.values(BacenSegment).map((s) => (
                <option key={s} value={s}>{s}</option>
              ))}
            </select>
@@ -67,20 +65,7 @@ export const TrendAnalysis: React.FC = () => {
       </div>
 
       <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
-        <div className="flex justify-between items-center mb-6">
-           <h3 className="font-semibold text-slate-800">Índice de Demanda Agregada</h3>
-           <div className="flex gap-2">
-              <span className="flex items-center gap-1 text-xs font-medium text-slate-500">
-                <span className="w-3 h-3 rounded-full bg-blue-600"></span> Imóveis
-              </span>
-              <span className="flex items-center gap-1 text-xs font-medium text-slate-500">
-                <span className="w-3 h-3 rounded-full bg-emerald-500"></span> Veículos
-              </span>
-              <span className="flex items-center gap-1 text-xs font-medium text-slate-500">
-                <span className="w-3 h-3 rounded-full bg-amber-500"></span> Serviços
-              </span>
-           </div>
-        </div>
+        <h3 className="font-semibold text-slate-800 mb-6">Evolução do Índice de Demanda</h3>
         
         <div className="h-96 w-full">
           <ResponsiveContainer width="100%" height="100%">
@@ -89,63 +74,66 @@ export const TrendAnalysis: React.FC = () => {
               <XAxis dataKey="quarter" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12}} dy={10} />
               <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12}} />
               <Tooltip contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'}} />
-              <Line type="monotone" dataKey="imoveis" stroke="#2563eb" strokeWidth={3} dot={{r: 4}} activeDot={{r: 6}} />
-              <Line type="monotone" dataKey="veiculos" stroke="#10b981" strokeWidth={3} dot={{r: 4}} />
-              <Line type="monotone" dataKey="servicos" stroke="#f59e0b" strokeWidth={3} dot={{r: 4}} />
+              <Legend />
+              {/* Plotting key segments */}
+              <Line name="Imóveis (Seg 1)" type="monotone" dataKey="seg1" stroke="#2563eb" strokeWidth={3} dot={{r: 4}} />
+              <Line name="Veíc. Leves (Seg 3)" type="monotone" dataKey="seg3" stroke="#10b981" strokeWidth={3} dot={{r: 4}} />
+              <Line name="Pesados/Agro (Seg 2)" type="monotone" dataKey="seg2" stroke="#f59e0b" strokeWidth={3} dot={{r: 4}} />
+              <Line name="Serviços (Seg 6)" type="monotone" dataKey="seg6" stroke="#8b5cf6" strokeWidth={3} dot={{r: 4}} />
             </LineChart>
           </ResponsiveContainer>
         </div>
       </div>
 
       {/* AI Prediction Section */}
-      <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-xl p-6 text-white shadow-lg">
+      <div className="bg-slate-900 rounded-xl p-6 text-white shadow-lg border border-slate-800">
         <div className="flex items-center gap-3 mb-4">
-          <div className="p-2 bg-blue-500/20 rounded-lg">
-            <BrainCircuit className="text-blue-400" size={24} />
+          <div className="p-2 bg-indigo-500/20 rounded-lg">
+            <BrainCircuit className="text-indigo-400" size={24} />
           </div>
           <div>
-            <h3 className="font-bold text-lg">Predição de Demanda com IA</h3>
-            <p className="text-slate-400 text-sm">Gemini AI model: gemini-3-flash-preview</p>
+            <h3 className="font-bold text-lg">Predição Estratégica Gemini</h3>
+            <p className="text-slate-400 text-sm">Análise baseada nos ciclos históricos e variáveis macro (IPCA/Selic).</p>
           </div>
         </div>
 
         {!prediction ? (
           <div className="flex flex-col items-start gap-4">
             <p className="text-slate-300 text-sm max-w-2xl">
-              Utilize nossa inteligência artificial para projetar a demanda do segmento de <span className="font-semibold text-white">{selectedSegment}</span> para os próximos 4 trimestres, considerando a série histórica {period === 'all' ? 'completa' : 'recente'} e fatores macroeconômicos.
+              Gerar projeção para <span className="font-semibold text-white">{selectedSegment}</span> para os próximos 12 meses. A análise correlaciona os dados do arquivo "Segmentos Consolidados" com indicadores econômicos externos.
             </p>
             <button
               onClick={handlePredict}
               disabled={loading}
-              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-5 py-2.5 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2.5 rounded-lg font-medium transition-colors disabled:opacity-50 shadow-lg shadow-indigo-900/20"
             >
               {loading ? (
-                <>Processando dados...</>
+                <>Analisando série histórica...</>
               ) : (
                 <>
                   <TrendingUp size={18} />
-                  Gerar Previsão
+                  Processar Predição
                 </>
               )}
             </button>
           </div>
         ) : (
           <div className="space-y-4 animate-fade-in">
-            <div className="bg-white/10 rounded-lg p-4 border border-white/10">
-              <span className="text-xs uppercase tracking-wider text-blue-300 font-semibold">Tendência Projetada ({period === 'all' ? 'Longo Prazo' : 'Curto Prazo'})</span>
-              <p className="text-xl font-bold mt-1">{prediction.prediction}</p>
+            <div className="bg-white/5 rounded-lg p-4 border border-white/10">
+              <span className="text-xs uppercase tracking-wider text-indigo-300 font-semibold">Cenário Projetado</span>
+              <p className="text-xl font-bold mt-1 text-white">{prediction.prediction}</p>
             </div>
             <div>
-              <span className="text-xs uppercase tracking-wider text-slate-400 font-semibold">Racional da Análise</span>
+              <span className="text-xs uppercase tracking-wider text-slate-400 font-semibold">Fundamentação Técnica</span>
               <p className="text-slate-300 text-sm mt-2 leading-relaxed">
                 {prediction.rationale}
               </p>
             </div>
             <button 
               onClick={() => setPrediction(null)}
-              className="text-xs text-slate-400 hover:text-white underline mt-2"
+              className="text-xs text-slate-500 hover:text-white underline mt-2 transition-colors"
             >
-              Nova Análise
+              Reiniciar Análise
             </button>
           </div>
         )}

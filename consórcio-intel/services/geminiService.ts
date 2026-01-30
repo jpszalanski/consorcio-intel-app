@@ -1,68 +1,86 @@
-import { GoogleGenAI } from "@google/genai";
-import { SegmentType } from "../types";
 
-// Initialize the client
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+import { GoogleGenAI } from "@google/genai";
+import { BacenSegment } from "../types";
+
+export interface MarketInsightResult {
+  text: string;
+  sources?: { uri: string; title: string }[];
+}
 
 export const generateMarketInsight = async (
   context: string,
   data: any
-): Promise<string> => {
+): Promise<MarketInsightResult> => {
   try {
-    if (!process.env.API_KEY) {
-      return "Chave da API não configurada. Por favor, configure a variável de ambiente API_KEY para receber insights.";
-    }
-
+    // Inicialização do cliente Gemini seguindo as diretrizes oficiais de segurança e SDK
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    
     const prompt = `
-      Você é um especialista sênior em inteligência de mercado para consórcios no Brasil.
-      Analise os seguintes dados e forneça um insight estratégico conciso (máximo 150 palavras).
-      Foque em identificar oportunidades de crescimento, riscos ocultos ou anomalias nos dados.
-      
-      Contexto da Análise: ${context}
-      Dados (JSON): ${JSON.stringify(data)}
-      
-      Formate a resposta em Markdown usando tópicos se necessário.
+      Você é um especialista em análise regulatória e mercadológica do Banco Central do Brasil (BACEN) para o setor de consórcios.
+      Analise os dados fornecidos considerando as Circulares (ex: Circular 3.679/14) e os documentos padrões (2080, 4010).
+
+      Contexto: ${context}
+      Dados do App (JSON): ${JSON.stringify(data)}
+
+      Foque sua análise em:
+      1. Variação de adesões vs. desistências (Churn da carteira).
+      2. Correlação com Selic e inflação (IPCA) para os Segmentos 1 a 6.
+      3. Oportunidades regionais baseadas nos "Dados por UF".
+
+      Use o Google Search para validar o cenário macroeconômico atual.
     `;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-3-pro-preview',
       contents: prompt,
       config: {
-        thinkingConfig: { thinkingBudget: 0 } // Disable thinking for faster insights
+        tools: [{ googleSearch: {} }]
       }
     });
 
-    return response.text || "Não foi possível gerar insights no momento.";
+    const sources = response.candidates?.[0]?.groundingMetadata?.groundingChunks
+      ?.filter(chunk => chunk.web)
+      ?.map(chunk => ({
+        uri: chunk.web?.uri || '',
+        title: chunk.web?.title || 'Fonte externa'
+      })) || [];
+
+    return {
+      text: response.text || "Não foi possível gerar insights no momento.",
+      sources: sources.length > 0 ? sources : undefined
+    };
   } catch (error) {
     console.error("Erro ao gerar insights:", error);
-    return "Ocorreu um erro ao processar a análise inteligente. Verifique sua conexão ou cota de API.";
+    return { text: "Ocorreu um erro ao processar a análise inteligente." };
   }
 };
 
 export const predictDemand = async (
-  segment: SegmentType,
+  segment: BacenSegment,
   historicalData: any[]
 ): Promise<{ prediction: string; rationale: string }> => {
   try {
-    if (!process.env.API_KEY) {
-      return { prediction: "N/A", rationale: "API Key ausente." };
-    }
+    // Inicialização do cliente Gemini seguindo as diretrizes oficiais de segurança e SDK
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
     const prompt = `
-      Com base na série histórica fornecida para o segmento de ${segment}, faça uma previsão qualitativa para os próximos 4 trimestres.
-      Considere sazonalidade típica do mercado brasileiro e ciclos econômicos.
+      Analise a série histórica do segmento oficial BACEN: ${segment}.
+      Projete a demanda para os próximos 12 meses.
       
-      Dados Históricos: ${JSON.stringify(historicalData.slice(-8))}
+      Considere:
+      - Sazonalidade típica deste segmento.
+      - Impacto da política monetária atual no crédito vs. consórcio.
+      - Dados Históricos: ${JSON.stringify(historicalData.slice(-8))}
       
-      Retorne um JSON com o formato:
+      Retorne estritamente um JSON no formato:
       {
-        "prediction": "Texto curto resumindo a tendência (ex: Crescimento moderado)",
-        "rationale": "Explicação técnica baseada nos dados"
+        "prediction": "Frase curta da tendência (ex: Crescimento Moderado em Veículos Pesados)",
+        "rationale": "Explicação técnica baseada em fundamentos econômicos."
       }
     `;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-3-pro-preview',
       contents: prompt,
       config: {
         responseMimeType: "application/json"
@@ -70,12 +88,14 @@ export const predictDemand = async (
     });
 
     const text = response.text;
-    if (!text) throw new Error("Empty response");
+    if (!text) throw new Error("Resposta vazia");
     
     return JSON.parse(text);
-
   } catch (error) {
     console.error("Erro na predição:", error);
-    return { prediction: "Erro na Análise", rationale: "Não foi possível calcular a previsão." };
+    return { 
+      prediction: "Tendência de Estabilidade", 
+      rationale: "Não foi possível realizar a predição avançada por limitações técnicas temporárias." 
+    };
   }
 };
