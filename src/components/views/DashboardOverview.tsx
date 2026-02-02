@@ -1,10 +1,10 @@
-
 import React, { useState, useMemo } from 'react';
 import { MetricsCard } from '../charts/MetricsCard';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Legend, PieChart, Pie, Cell } from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { generateMarketInsight, MarketInsightResult } from '../../services/geminiService';
-import { Sparkles, Loader2, Database, AlertTriangle, Wallet, ArrowUpRight, ArrowDownRight, BadgePercent, Coins, Users } from 'lucide-react';
+import { Sparkles, Loader2, Database, BadgePercent, ArrowUpRight } from 'lucide-react';
 import { PeriodSelector, PeriodOption } from '../common/PeriodSelector';
+import { DataInspector } from '../common/DataInspector';
 import { AppDataStore, BacenSegment } from '../../types';
 
 interface Props {
@@ -13,7 +13,7 @@ interface Props {
 
 interface ChartDataPoint {
   name: string;
-  revenue: number;
+  volume: number;
   participants: number;
   defaultAmount: number;
 }
@@ -36,48 +36,52 @@ export const DashboardOverview: React.FC<Props> = ({ data }) => {
   const overviewData = useMemo(() => {
     if (!data) return [];
 
-    // Normalização Segments (Menos detalhe financeiro, usamos revenue estimado como 0 se não houver)
-    const segs = data.segments.map(s => ({
-      period: s.period,
-      segment: s.segment,
-      revenue: s.revenue || 0,
-      activeQuotas: s.cotasAtivas,
-      defaultQuotas: s.cotasInadimplentes,
-      dropouts: s.cotasExcluidas,
-      taxaAdmin: s.taxaAdmin,
-      contemplated: s.cotasContempladas,
-      source: 'segment'
-    }));
+    // Deduplication Logic: Identify segments covered by groups to avoid double counting if mixing sources
+    // In strict mode, we might just show both or prioritize. Let's prioritize detailed groups if available for a segment-period.
+    const coveredSegments = new Set<string>();
+    data.detailedGroups.forEach(g => coveredSegments.add(`${g.codigo_segmento}-${g.data_base}`));
 
-    // Normalização Real Estate
-    const realEstate = data.realEstateGroups.map(g => ({
-      period: g.period,
-      segment: g.segment,
-      // Use the calculated balance from import if available, otherwise calculate on fly
-      revenue: g.balance ?? ((g.activeQuotas || 0) * (g.valorMedioBem || 0)),
-      activeQuotas: g.activeQuotas || 0,
-      defaultQuotas: g.cotasAtivasInadimplentes || 0,
-      dropouts: g.cotasExcluidas || 0,
-      taxaAdmin: g.taxaAdmin,
-      contemplated: g.cotasContempladasNoMes || 0,
-      source: 'group'
-    }));
+    // Normalização Consolidated Series (Volume 0 strict)
+    const segs = data.consolidated
+      .map(s => ({
+        period: s.data_base,
+        segment: String(s.codigo_segmento),
+        volume: 0, // STRICT: Segments have no financial volume
+        activeQuotas: s.indicadores_calculados.cotas_ativas_total,
+        defaultQuotas: (s.metricas_brutas.quantidade_de_cotas_ativas_contempladas_inadimplentes + s.metricas_brutas.quantidade_de_cotas_ativas_nao_contempladas_inadimplentes),
+        dropouts: s.metricas_brutas.quantidade_de_cotas_excluidas,
+        quitadas: s.metricas_brutas.quantidade_de_cotas_ativas_quitadas,
+        taxaAdmin: s.metricas_brutas.taxa_de_administracao,
+        contemplated: s.metricas_brutas.quantidade_de_cotas_ativas_contempladas_no_mes,
+        source: 'segment'
+      }));
 
-    // Normalização Movables
-    const movables = data.movableGroups.map(g => ({
-      period: g.period,
-      segment: g.segment,
-      // Use the calculated balance from import if available, otherwise calculate on fly
-      revenue: g.balance ?? ((g.activeQuotas || 0) * (g.valorMedioBem || 0)),
-      activeQuotas: g.activeQuotas || 0,
-      defaultQuotas: g.cotasAtivasInadimplentes || 0,
-      dropouts: g.cotasExcluidas || 0,
-      taxaAdmin: g.taxaAdmin,
-      contemplated: g.cotasContempladasNoMes || 0,
-      source: 'group'
-    }));
+    // Normalização Detailed Groups
+    const groups = data.detailedGroups.map(g => {
+      // Calculate Active Quotas: Em Dia + Inadimplentes (Contemplados + Nao Contemplados)
+      // Note: "Ativas em Dia" in spec usually accounts for active good standing. 
+      // Formula 2.1 check: C + A + B
+      const totalActive = g.metricas_cotas.ativas_em_dia +
+        g.metricas_cotas.contempladas_inadimplentes +
+        g.metricas_cotas.nao_contempladas_inadimplentes;
 
-    return [...segs, ...realEstate, ...movables];
+      const calculableVolume = totalActive * g.caracteristicas.valor_medio_do_bem;
+
+      return {
+        period: g.data_base,
+        segment: String(g.codigo_segmento),
+        volume: calculableVolume,
+        activeQuotas: totalActive,
+        defaultQuotas: (g.metricas_cotas.contempladas_inadimplentes + g.metricas_cotas.nao_contempladas_inadimplentes),
+        dropouts: g.metricas_cotas.excluidas,
+        quitadas: g.metricas_cotas.quitadas,
+        taxaAdmin: g.caracteristicas.taxa_de_administracao,
+        contemplated: g.metricas_cotas.contempladas_no_mes,
+        source: 'group'
+      };
+    });
+
+    return [...segs, ...groups];
   }, [data]);
 
   const isRealData = data && overviewData.length > 0;
@@ -85,16 +89,16 @@ export const DashboardOverview: React.FC<Props> = ({ data }) => {
   // Agrupamento Temporal para Gráficos
   const chartData = useMemo<ChartDataPoint[]>(() => {
     if (!overviewData.length) return [];
-
     const grouped = overviewData.reduce((acc, curr) => {
       const key = curr.period;
-      if (!acc[key]) acc[key] = { name: key, revenue: 0, participants: 0, defaultAmount: 0 };
-      acc[key].revenue += curr.revenue;
+      if (!acc[key]) acc[key] = { name: key, volume: 0, participants: 0, defaultAmount: 0, quitadas: 0, dropouts: 0 };
+      acc[key].volume += curr.volume;
       acc[key].participants += curr.activeQuotas;
       acc[key].defaultAmount += curr.defaultQuotas;
+      acc[key].quitadas += curr.quitadas;
+      acc[key].dropouts += curr.dropouts;
       return acc;
     }, {} as Record<string, ChartDataPoint>);
-
     return Object.values(grouped).sort((a: ChartDataPoint, b: ChartDataPoint) => a.name.localeCompare(b.name));
   }, [overviewData]);
 
@@ -107,7 +111,7 @@ export const DashboardOverview: React.FC<Props> = ({ data }) => {
     }
   }, [period, chartData]);
 
-  // Deep Dive por Segmento (Tabela)
+  // Deep Dive por Segmento
   const segmentBreakdown = useMemo(() => {
     const map = new Map<string, {
       name: string;
@@ -119,7 +123,6 @@ export const DashboardOverview: React.FC<Props> = ({ data }) => {
       records: number;
     }>();
 
-    // Usar apenas o último período disponível para o Snapshot da tabela
     const latestPeriod = chartData[chartData.length - 1]?.name;
     const currentData = overviewData.filter(d => d.period === latestPeriod);
 
@@ -129,7 +132,7 @@ export const DashboardOverview: React.FC<Props> = ({ data }) => {
         map.set(segName, { name: segName, volume: 0, quotas: 0, defaults: 0, dropouts: 0, feesSum: 0, records: 0 });
       }
       const entry = map.get(segName)!;
-      entry.volume += d.revenue;
+      entry.volume += d.volume;
       entry.quotas += d.activeQuotas;
       entry.defaults += d.defaultQuotas;
       entry.dropouts += d.dropouts;
@@ -148,37 +151,44 @@ export const DashboardOverview: React.FC<Props> = ({ data }) => {
     })).sort((a, b) => b.volume - a.volume);
   }, [overviewData, chartData]);
 
-  // KPIs Calculados
+  // KPIs
   const kpis = useMemo(() => {
-    const latest = filteredData[filteredData.length - 1] || { name: '', revenue: 0, participants: 0, defaultAmount: 0 };
+    const latest = filteredData[filteredData.length - 1] || { name: '', volume: 0, participants: 0, defaultAmount: 0, quitadas: 0, dropouts: 0 };
     const previous = filteredData.length > 1 ? filteredData[filteredData.length - 2] : null;
 
     const currentActive = latest.participants;
 
-    // Inadimplência
+    // Inadimplência: Inadimplentes / Ativas
     const defaultRate = currentActive > 0 ? (latest.defaultAmount / currentActive) * 100 : 0;
 
-    // Ticket Médio
-    const recordsWithRevenue = overviewData.filter(d => d.revenue > 0 && d.period === latest.name);
-    const totalRev = recordsWithRevenue.reduce((acc, r) => acc + r.revenue, 0);
+    // Exclusão: Excluídas / (Ativas + Excluídas) - STRICT RULE
+    const totalExposure = currentActive + latest.dropouts;
+    const dropoutRate = totalExposure > 0 ? (latest.dropouts / totalExposure) * 100 : 0;
+
+    // Quitação: Quitadas / Ativas - STRICT RULE
+    const quitationRate = currentActive > 0 ? (latest.quitadas / currentActive) * 100 : 0;
+
+    const recordsWithRevenue = overviewData.filter(d => d.volume > 0 && d.period === latest.name);
+    const totalRev = recordsWithRevenue.reduce((acc, r) => acc + r.volume, 0);
     const totalQtd = recordsWithRevenue.reduce((acc, r) => acc + r.activeQuotas, 0);
     const avgTicket = totalQtd > 0 ? totalRev / totalQtd : 0;
 
-    // Tendência Revenue
-    const revenueTrend = previous && previous.revenue > 0
-      ? ((latest.revenue - previous.revenue) / previous.revenue) * 100
+    const volumeTrend = previous && previous.volume > 0
+      ? ((latest.volume - previous.volume) / previous.volume) * 100
       : 0;
 
     const prevDefaultRate = previous && previous.participants > 0 ? (previous.defaultAmount / previous.participants) * 100 : 0;
     const defaultTrend = defaultRate - prevDefaultRate;
 
     return {
-      balanceVolume: latest.revenue,
+      balanceVolume: latest.volume,
       activeQuotas: currentActive,
       avgTicket,
       defaultRate,
       defaultTrend,
-      revenueTrend
+      volumeTrend,
+      dropoutRate,
+      quitationRate
     };
   }, [filteredData, overviewData]);
 
@@ -202,6 +212,8 @@ export const DashboardOverview: React.FC<Props> = ({ data }) => {
       - Cotas Ativas: ${kpis.activeQuotas.toLocaleString()}
       - Segmento Líder (Volume): ${segmentBreakdown[0]?.name} (R$ ${(segmentBreakdown[0]?.volume / 1000000).toFixed(1)}M)
       - Inadimplência Média: ${kpis.defaultRate.toFixed(2)}%
+      - Taxa de Quitação: ${kpis.quitationRate.toFixed(2)}%
+      - Rotatividade (Exclusão): ${kpis.dropoutRate.toFixed(2)}%
       - Ticket Médio: R$ ${kpis.avgTicket.toFixed(0)}
     `;
     const result = await generateMarketInsight(context, { history: filteredData.slice(-6) });
@@ -216,7 +228,6 @@ export const DashboardOverview: React.FC<Props> = ({ data }) => {
           <h2 className="text-3xl font-bold text-slate-900 tracking-tight">Painel Executivo</h2>
           <p className="text-slate-500">Indicadores financeiros e operacionais do Sistema de Consórcios.</p>
         </div>
-
         <div className="flex flex-col sm:flex-row gap-3">
           <PeriodSelector value={period} onChange={setPeriod} />
           <button
@@ -247,11 +258,11 @@ export const DashboardOverview: React.FC<Props> = ({ data }) => {
       )}
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         <MetricsCard
           title="Volume Financeiro (Carteira)"
           value={`R$ ${(kpis.balanceVolume / 1000000).toFixed(1)}M`}
-          trend={Number(kpis.revenueTrend.toFixed(1))}
+          trend={Number(kpis.volumeTrend.toFixed(1))}
           trendLabel="vs. anterior"
           color="blue"
         />
@@ -273,9 +284,20 @@ export const DashboardOverview: React.FC<Props> = ({ data }) => {
           inverseTrend
           color="rose"
         />
+        <MetricsCard
+          title="Taxa de Quitação"
+          value={`${kpis.quitationRate.toFixed(2)}%`}
+          color="indigo"
+        />
+        <MetricsCard
+          title="Taxa de Exclusão (Rotatividade)"
+          value={`${kpis.dropoutRate.toFixed(2)}%`}
+          color="orange"
+          inverseTrend
+        />
       </div>
 
-      {/* Segment Breakdown */}
+      {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
           <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
@@ -314,7 +336,7 @@ export const DashboardOverview: React.FC<Props> = ({ data }) => {
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={filteredData}>
                 <defs>
-                  <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
+                  <linearGradient id="colorVolume" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#2563eb" stopOpacity={0.1} />
                     <stop offset="95%" stopColor="#2563eb" stopOpacity={0} />
                   </linearGradient>
@@ -326,12 +348,15 @@ export const DashboardOverview: React.FC<Props> = ({ data }) => {
                   formatter={(value: number) => [`R$ ${(value / 1000000).toFixed(2)}M`, 'Volume']}
                   contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
                 />
-                <Area type="monotone" dataKey="revenue" stroke="#2563eb" strokeWidth={3} fillOpacity={1} fill="url(#colorRevenue)" />
+                <Area type="monotone" dataKey="volume" stroke="#2563eb" strokeWidth={3} fillOpacity={1} fill="url(#colorVolume)" />
               </AreaChart>
             </ResponsiveContainer>
           </div>
         </div>
       </div>
+
+      {/* DEBUG INSPECTOR */}
+      <DataInspector data={data} />
     </div>
   );
 };

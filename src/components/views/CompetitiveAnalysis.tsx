@@ -13,22 +13,25 @@ export const CompetitiveAnalysis: React.FC<Props> = ({ data }) => {
 
   // Aggregation of all collections for market share analysis
   const consolidatedData = useMemo(() => {
+    // Deduplication not strictly needed if we just sum everything up, 
+    // but typically we separate sources.
+
     return [
-      ...data.segments.map(s => ({ 
-        adminName: s.adminName, 
-        revenue: s.revenue || 0, 
-        activeQuotas: s.cotasAtivas 
+      ...data.consolidated.map(s => ({
+        adminName: s.cnpj_raiz, // We might want to resolve name or just use ID for now. Ideally should join with admins collection.
+        volume: 0,
+        activeQuotas: s.indicadores_calculados.cotas_ativas_total
       })),
-      ...data.realEstateGroups.map(s => ({ 
-        adminName: s.adminName, 
-        revenue: s.revenue || 0, 
-        activeQuotas: s.activeQuotas || 0 
-      })),
-      ...data.movableGroups.map(s => ({ 
-        adminName: s.adminName, 
-        revenue: s.revenue || 0, 
-        activeQuotas: s.activeQuotas || 0 
-      }))
+      ...data.detailedGroups.map(g => {
+        const totalActive = g.metricas_cotas.ativas_em_dia +
+          g.metricas_cotas.contempladas_inadimplentes +
+          g.metricas_cotas.nao_contempladas_inadimplentes;
+        return {
+          adminName: g.cnpj_raiz,
+          volume: (totalActive * g.caracteristicas.valor_medio_do_bem),
+          activeQuotas: totalActive
+        };
+      })
     ];
   }, [data]);
 
@@ -39,25 +42,25 @@ export const CompetitiveAnalysis: React.FC<Props> = ({ data }) => {
     // In a real scenario we would filter by period field
     const relevantData = consolidatedData;
 
-    const adminStats = new Map<string, { revenue: number, active: number }>();
-    let totalMarketRevenue = 0;
+    const adminStats = new Map<string, { volume: number, active: number }>();
+    let totalMarketVolume = 0;
 
     relevantData.forEach(item => {
-       const name = item.adminName?.trim() || 'Outros';
-       if (!adminStats.has(name)) adminStats.set(name, { revenue: 0, active: 0 });
-       const entry = adminStats.get(name)!;
-       entry.revenue += item.revenue;
-       entry.active += item.activeQuotas;
-       totalMarketRevenue += item.revenue;
+      const name = item.adminName?.trim() || 'Outros';
+      if (!adminStats.has(name)) adminStats.set(name, { volume: 0, active: 0 });
+      const entry = adminStats.get(name)!;
+      entry.volume += item.volume;
+      entry.active += item.activeQuotas;
+      totalMarketVolume += item.volume;
     });
 
     const ranking = Array.from(adminStats.entries())
       .map(([name, stats]) => ({
-         name,
-         revenue: stats.revenue,
-         share: totalMarketRevenue > 0 ? (stats.revenue / totalMarketRevenue) * 100 : 0
+        name,
+        volume: stats.volume,
+        share: totalMarketVolume > 0 ? (stats.volume / totalMarketVolume) * 100 : 0
       }))
-      .sort((a, b) => b.revenue - a.revenue);
+      .sort((a, b) => b.volume - a.volume);
 
     return ranking;
   }, [consolidatedData, period]);
@@ -75,19 +78,19 @@ export const CompetitiveAnalysis: React.FC<Props> = ({ data }) => {
     const leader = marketMetrics[0];
     const top5 = marketMetrics.slice(0, 5);
     const avgTop5Share = top5.reduce((acc, curr) => acc + curr.share, 0) / top5.length;
-    const avgTop5Rev = top5.reduce((acc, curr) => acc + curr.revenue, 0) / top5.length;
+    const avgTop5Vol = top5.reduce((acc, curr) => acc + curr.volume, 0) / top5.length;
 
-    const maxRev = leader.revenue || 1; 
+    const maxVol = leader.volume || 1;
 
     return [
       { subject: 'Market Share', A: leader.share, B: avgTop5Share, fullMark: 100 },
-      { subject: 'Volume (Relativo)', A: 100, B: (avgTop5Rev / maxRev) * 100, fullMark: 100 },
+      { subject: 'Volume (Relativo)', A: 100, B: (avgTop5Vol / maxVol) * 100, fullMark: 100 },
       { subject: 'Dominância', A: (leader.share / (marketMetrics[1]?.share || 1)) * 50, B: 50, fullMark: 100 },
     ];
   }, [marketMetrics]);
 
   if (marketMetrics.length === 0) {
-     return <div className="p-8 text-center text-slate-400">Dados insuficientes para análise competitiva.</div>;
+    return <div className="p-8 text-center text-slate-400">Dados insuficientes para análise competitiva.</div>;
   }
 
   return (
@@ -123,7 +126,7 @@ export const CompetitiveAnalysis: React.FC<Props> = ({ data }) => {
           <h3 className="font-semibold text-slate-800 mb-2">Market Share Real (%)</h3>
           <p className="text-xs text-slate-400 mb-6">Baseado no Volume de Crédito Total</p>
           <div className="h-80 w-full">
-             <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%">
               <BarChart
                 data={marketMetrics.slice(0, 8)}
                 layout="vertical"
@@ -131,10 +134,10 @@ export const CompetitiveAnalysis: React.FC<Props> = ({ data }) => {
               >
                 <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} />
                 <XAxis type="number" hide />
-                <YAxis dataKey="name" type="category" width={120} tick={{fontSize: 11, fill: '#475569'}} />
-                <Tooltip 
-                  cursor={{fill: '#f8fafc'}} 
-                  contentStyle={{borderRadius: '8px', border: 'none'}} 
+                <YAxis dataKey="name" type="category" width={120} tick={{ fontSize: 11, fill: '#475569' }} />
+                <Tooltip
+                  cursor={{ fill: '#f8fafc' }}
+                  contentStyle={{ borderRadius: '8px', border: 'none' }}
                   formatter={(value: number) => [`${value.toFixed(2)}%`, 'Share']}
                 />
                 <Bar dataKey="share" name="Market Share %" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={20} />
@@ -149,23 +152,23 @@ export const CompetitiveAnalysis: React.FC<Props> = ({ data }) => {
           <h3 className="font-semibold text-slate-800">Indicadores de Concentração de Mercado</h3>
         </div>
         <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-8">
-            <div className="text-center">
-                <div className="text-sm text-slate-500 mb-1">Índice HHI (Herfindahl)</div>
-                <div className="text-3xl font-bold text-slate-800">{concentrationIndices.hhi.toFixed(0)}</div>
-                <div className={`text-xs mt-1 font-bold ${concentrationIndices.hhi > 2500 ? 'text-red-500' : concentrationIndices.hhi > 1500 ? 'text-amber-500' : 'text-green-500'}`}>
-                   {concentrationIndices.hhi > 2500 ? 'Alta Concentração' : concentrationIndices.hhi > 1500 ? 'Moderada' : 'Baixa Concentração'}
-                </div>
+          <div className="text-center">
+            <div className="text-sm text-slate-500 mb-1">Índice HHI (Herfindahl)</div>
+            <div className="text-3xl font-bold text-slate-800">{concentrationIndices.hhi.toFixed(0)}</div>
+            <div className={`text-xs mt-1 font-bold ${concentrationIndices.hhi > 2500 ? 'text-red-500' : concentrationIndices.hhi > 1500 ? 'text-amber-500' : 'text-green-500'}`}>
+              {concentrationIndices.hhi > 2500 ? 'Alta Concentração' : concentrationIndices.hhi > 1500 ? 'Moderada' : 'Baixa Concentração'}
             </div>
-            <div className="text-center border-l border-r border-slate-100">
-                <div className="text-sm text-slate-500 mb-1">CR4 (Share Top 4)</div>
-                <div className="text-3xl font-bold text-slate-800">{concentrationIndices.cr4.toFixed(1)}%</div>
-                <div className="text-xs text-slate-400 mt-1">Poder de mercado dos 4 maiores players</div>
-            </div>
-             <div className="text-center">
-                <div className="text-sm text-slate-500 mb-1">Players Analisados</div>
-                <div className="text-3xl font-bold text-blue-600">{marketMetrics.length}</div>
-                <div className="text-xs text-blue-600 mt-1">Administradoras na base</div>
-            </div>
+          </div>
+          <div className="text-center border-l border-r border-slate-100">
+            <div className="text-sm text-slate-500 mb-1">CR4 (Share Top 4)</div>
+            <div className="text-3xl font-bold text-slate-800">{concentrationIndices.cr4.toFixed(1)}%</div>
+            <div className="text-xs text-slate-400 mt-1">Poder de mercado dos 4 maiores players</div>
+          </div>
+          <div className="text-center">
+            <div className="text-sm text-slate-500 mb-1">Players Analisados</div>
+            <div className="text-3xl font-bold text-blue-600">{marketMetrics.length}</div>
+            <div className="text-xs text-blue-600 mt-1">Administradoras na base</div>
+          </div>
         </div>
       </div>
     </div>

@@ -1,0 +1,652 @@
+
+================================================================================
+1. MAPEAMENTO EXATO DOS CAMPOS POR FONTE DE DADOS
+================================================================================
+
+--------------------------------------------------------------------------------
+1.1 ARQUIVO: AAAAMMSegmentos_Consolidados.csv
+--------------------------------------------------------------------------------
+Periodicidade: Mensal
+Encoding: ISO-8859-1 (Latin-1) | Delimitador: Ponto-e-virgula (;)
+Chave Primaria: CNPJ_da_Administradora + Código_do_segmento + Data_base
+
+CAMPO (NOME EXATO)                          TIPO        DESCRICAO
+------------------------------------------  ----------  --------------------------------
+Data_base                                   String      Formato AAAA-MM (ex: 2024-01)
+CNPJ_da_Administradora                      String      Raiz CNPJ (8 digitos)
+#Nome_da_Administradora                     String      Nome reduzido da instituicao
+Código_do_segmento                          Integer     1 a 6 (ver legenda abaixo)
+Taxa_de_administração                       Decimal     Percentual medio ponderado
+Quantidade_de_grupos_ativos                 Integer     Total grupos ativos no mes
+Quantidade_de_grupos_constituídos_no_mês    Integer     Grupos que iniciaram no mes
+Quantidade_de_grupos_encerrados_no_mês      Integer     Grupos encerrados no mes
+Quantidade_de_cotas_comercializadas_no_mês  Integer     Novas cotas vendidas (1a parcela paga)
+Quantidade_de_cotas_excluídas_a_comercializar Integer   Excluidas sem substituicao
+Quantidade_acumulada_de_cotas_ativas_contempladas Integer Acumulado historico
+Quantidade_de_cotas_ativas_não_contempladas Integer     Estoque atual nao contempladas
+Quantidade_de_cotas_ativas_contempladas_no_mês Integer  Contemplacoes do mes
+Quantidade_de_cotas_ativas_em_dia           Integer     Cotas adimplentes
+Quantidade_de_cotas_ativas_contempladas_inadimplentes Integer Contemplados inadimplentes
+Quantidade_de_cotas_ativas_não_contempladas_inadimplentes Integer Nao contemplados inadimplentes
+Quantidade_de_cotas_excluídas               Integer     Total excluidas acumulado
+Quantidade_de_cotas_ativas_quitadas         Integer     Cotas quitadas
+Quantidade_de_cotas_ativas_com_crédito_pendente_de_utilização Integer Credito nao usado
+
+LEGENDA SEGMENTOS:
+1 = Bens imoveis
+2 = Tratores, equipamentos rodoviarios, maquinas agricolas, embarcacoes, aeronaves e veiculos de carga/coletivo
+3 = Veiculos automotores nao incluidos no segmento 2
+4 = Motocicletas e motonetas
+5 = Outros bens moveis duraveis
+6 = Servicos turisticos
+
+REGRA DE CONSOLIDACAO:
+Segmento 1: Consolidacao direta dos grupos
+Segmentos 2-6: Consolidacao por segmento, ignorando "Tipo de bem" (soma independente do tipo)
+
+--------------------------------------------------------------------------------
+1.2 ARQUIVO: AAAAMMBens_Imoveis_Grupos.csv
+--------------------------------------------------------------------------------
+Periodicidade: Mensal | Segmento: Apenas codigo 1
+Chave Primaria: CNPJ_da_Administradora + Código_do_grupo + Data_base
+
+CAMPO ADICIONAL (alem dos acima):
+------------------------------------------
+Código_do_grupo                             String      ID do grupo na administradora
+Número_da_assembléia_geral_ordinária        Integer     NUMERO REAL de assembleias realizadas
+Valor_médio_do_bem                          Decimal     Media aritmetica simples dos precos
+Índice_de_correção                          String      Indice contratado (INCC, etc)
+Prazo_do_grupo_em_meses                     Integer     Prazo total do grupo
+
+OBSERVACAO: 
+Neste arquivo, o campo "Número_da_assembléia_geral_ordinária" representa o 
+CONTADOR REAL de assembleias realizadas ate a data-base (ex: 24 assembleias).
+
+--------------------------------------------------------------------------------
+1.3 ARQUIVO: AAAAMMBens_Moveis_Grupos.csv
+--------------------------------------------------------------------------------
+Periodicidade: Mensal | Segmentos: 2, 3, 4, 5, 6 (dezena do codigo)
+Chave Primaria: CNPJ_da_Administradora + Código_do_grupo + Código_do_segmento (derivado) + Data_base
+
+REGRAS CRITICAS ESPECIFICAS:
+1. Código_do_segmento: Usar DEZENA do codigo completo (ex: codigo 32 -> segmento 3)
+2. Um mesmo Código_do_grupo pode gerar multiplos registros (um por segmento presente)
+3. Número_da_assembléia_geral_ordinária: INTERVALO EM MESES entre data-base e primeira assembleia, arredondado para cima
+4. Valor_médio_do_bem: Media das cotas ativas daquele segmento especifico no grupo
+5. Taxa_de_administração: Media de (taxa antecipada + taxa normal) das cotas ativas
+
+CAMPOS COM CALCULO DIFERENCIADO:
+------------------------------------------
+Número_da_assembléia_geral_ordinária = ceil((data_base - data_primeira_assembleia) / 30 dias)
+Taxa_de_administração = media(taxa_antecipada + taxa_normal) das cotas ativas do segmento
+
+--------------------------------------------------------------------------------
+1.4 ARQUIVO: AAAAMMUF.csv
+--------------------------------------------------------------------------------
+Periodicidade: Trimestral (meses 03, 06, 09, 12 apenas)
+Chave Primaria: CNPJ_da_Administradora + Unidade_da_Federação_do_consorciado + Código_do_segmento + Data_base
+
+ATENCAO: Este arquivo contem dados ACUMULADOS e DO TRIMESTRE (fluxo).
+
+CAMPOS EXISTENTES (NOMES EXATOS):
+------------------------------------------
+Data_base                                   String      Trimestre (AAAA-MM)
+CNPJ_da_Administradora                      String      Raiz CNPJ (8 digitos)
+#Nome_da_Administradora                     String      Nome reduzido
+Código_do_segmento                          Integer     1 a 6
+Unidade_da_Federação_do_consorciado         String      UF (SP, RJ, MG, etc)
+
+CAMPOS ACUMULADOS (historico desde inicio):
+------------------------------------------
+Quantidade_de_consorciados_ativos_contemplados_por_lance        Integer
+Quantidade_de_consorciados_ativos_contemplados_por_sorteio      Integer
+Quantidade_de_consorciados_ativos_não_contemplados              Integer
+Quantidade_de_consorciados_excluídos_contemplados               Integer
+Quantidade_de_consorciados_excluídos_não_contemplados           Integer
+
+CAMPOS DO TRIMESTRE (fluxo do periodo):
+------------------------------------------
+Quantidade_de_consorciados_ativos_contemplados_por_lance_no_trimestre       Integer
+Quantidade_de_consorciados_ativos_contemplados_por_sorteio_no_trimestre     Integer
+Quantidade_de_consorciados_excluídos_contemplados_no_ trimestre              Integer  [ATENCAO AO ESPACO: "no_ trimestre"]
+Quantidade_de_adesões_no_trimestre                                           Integer
+
+IMPORTANTE: NAO EXISTE no layout o campo "Quantidade_de_consorciados_excluídos_não_contemplados_no_trimestre".
+Para obter excluidos nao contemplados do trimestre, e necessario calcular pela diferenca entre acumulados.
+
+================================================================================
+2. INDICADORES MATEMATICOS E FORMULAS
+================================================================--------------------------------------------------------------------------------
+2.1 INDICADORES DE RISCO E INADIMPLENCIA
+--------------------------------------------------------------------------------
+
+INDICADOR: Taxa de Inadimplencia Total
+FORMULA:   (A + B) / (A + B + C)
+ONDE:      
+  A = Quantidade_de_cotas_ativas_contempladas_inadimplentes
+  B = Quantidade_de_cotas_ativas_não_contempladas_inadimplentes
+  C = Quantidade_de_cotas_ativas_em_dia
+FONTE:     Segmentos_Consolidados, Bens_Imoveis_Grupos, Bens_Moveis_Grupos
+
+INDICADOR: Taxa de Inadimplencia - Contemplados
+FORMULA:   A / (A + D)
+ONDE:
+  A = Quantidade_de_cotas_ativas_contempladas_inadimplentes
+  D = Quantidade_acumulada_de_cotas_ativas_contempladas
+FONTE:     Todas as fontes de dados
+
+INDICADOR: Taxa de Inadimplencia - Nao Contemplados
+FORMULA:   B / (B + E)
+ONDE:
+  B = Quantidade_de_cotas_ativas_não_contempladas_inadimplentes
+  E = Quantidade_de_cotas_ativas_não_contempladas
+FONTE:     Todas as fontes de dados
+
+INDICADOR: Taxa de Adimplencia
+FORMULA:   C / (A + B + C)
+ONDE:      (mesmos campos acima)
+FONTE:     Todas as fontes de dados
+
+--------------------------------------------------------------------------------
+2.2 INDICADORES DE PERFORMANCE OPERACIONAL
+--------------------------------------------------------------------------------
+
+INDICADOR: Taxa de Contemplacao Mensal
+FORMULA:   F / (A + B + C)
+ONDE:
+  F = Quantidade_de_cotas_ativas_contempladas_no_mês
+  Denominador = soma dos 3 status de cotas ativas
+RESTRICAO: Nao aplicavel ao arquivo UF (este nao tem contemplacao mensal, apenas trimestral)
+FONTE:     Segmentos_Consolidados, Bens_Imoveis_Grupos, Bens_Moveis_Grupos
+
+INDICADOR: Taxa de Exclusao
+FORMULA:   G / (A + B + C + G)
+ONDE:
+  G = Quantidade_de_cotas_excluídas
+  Denominador = cotas ativas + excluidas
+FONTE:     Todas as fontes mensais
+
+INDICADOR: Taxa de Quitacao
+FORMULA:   H / (A + B + C)
+ONDE:
+  H = Quantidade_de_cotas_ativas_quitadas
+FONTE:     Todas as fontes mensais
+
+INDICADOR: Taxa de Utilizacao de Credito Pendente
+FORMULA:   I / D
+ONDE:
+  I = Quantidade_de_cotas_ativas_com_crédito_pendente_de_utilização
+  D = Quantidade_acumulada_de_cotas_ativas_contempladas (acumulado)
+INTERPRETACAO: Percentual de contemplados que ainda nao usaram o credito
+FONTE:     Segmentos_Consolidados, Grupos
+
+INDICADOR: Taxa de Substituicao de Titularidade
+FORMULA:   M / G
+ONDE:
+  M = Quantidade_de_cotas_excluídas_a_comercializar
+  G = Quantidade_de_cotas_excluídas
+INTERPRETACAO: Percentual de excluidos que ainda nao foram revendidos
+FONTE:     Segmentos_Consolidados
+
+--------------------------------------------------------------------------------
+2.3 INDICADORES DE CRESCIMENTO E DINAMICA DE MERCADO
+--------------------------------------------------------------------------------
+
+INDICADOR: Taxa de Constituicao de Grupos
+FORMULA:   J / K
+ONDE:
+  J = Quantidade_de_grupos_constituídos_no_mês
+  K = Quantidade_de_grupos_ativos
+FONTE:     Segmentos_Consolidados
+
+INDICADOR: Taxa de Encerramento de Grupos
+FORMULA:   L / K
+ONDE:
+  L = Quantidade_de_grupos_encerrados_no_mês
+  K = Quantidade_de_grupos_ativos
+FONTE:     Segmentos_Consolidados
+
+INDICADOR: Ticket Medio do Grupo
+VALOR:     Valor_médio_do_bem (direto do campo)
+FONTE:     Bens_Imoveis_Grupos, Bens_Moveis_Grupos
+
+INDICADOR: Prazo Medio dos Grupos
+VALOR:     Prazo_do_grupo_em_meses (direto do campo)
+FONTE:     Bens_Imoveis_Grupos, Bens_Moveis_Grupos
+
+--------------------------------------------------------------------------------
+2.4 INDICADORES TRIMESTRAIS (ARQUIVO UF)
+--------------------------------------------------------------------------------
+
+INDICADOR: Total Contemplados no Trimestre
+FORMULA:   N + O
+ONDE:
+  N = Quantidade_de_consorciados_ativos_contemplados_por_lance_no_trimestre
+  O = Quantidade_de_consorciados_ativos_contemplados_por_sorteio_no_trimestre
+TIPO:      Fluxo do periodo (nao acumulado)
+FONTE:     UF
+
+INDICADOR: Total Consorciados Ativos (Posicao)
+FORMULA:   P + Q + R
+ONDE:
+  P = Quantidade_de_consorciados_ativos_contemplados_por_lance (ACUMULADO)
+  Q = Quantidade_de_consorciados_ativos_contemplados_por_sorteio (ACUMULADO)
+  R = Quantidade_de_consorciados_ativos_não_contemplados (POSICAO ATUAL)
+FONTE:     UF
+
+INDICADOR: Taxa de Contemplacao Trimestral
+FORMULA:   (N + O) / (P + Q + R)
+ONDE:      Numerador = fluxo trimestre | Denominador = posicao atual
+CUIDADO:   Interpretar com cautela pois mistura fluxo e estoque
+FONTE:     UF
+
+INDICADOR: Taxa de Exclusao de Contemplados no Trimestre
+FORMULA:   S / (P + Q)
+ONDE:
+  S = Quantidade_de_consorciados_excluídos_contemplados_no_ trimestre [campo com espaco]
+  P+Q = contemplados ativos acumulados
+IMPORTANTE: Nao existe equivalente para "excluidos nao contemplados no trimestre" no layout
+FONTE:     UF
+
+INDICADOR: Taxa de Adesao Trimestral
+FORMULA:   T / R
+ONDE:
+  T = Quantidade_de_adesões_no_trimestre
+  R = Quantidade_de_consorciados_ativos_não_contemplados (estoque base)
+FONTE:     UF
+
+================================================================================
+3. ESTRATEGIA FIREBASE/FIRESTORE - ARQUITETURA COMPLETA
+================================================================================
+
+--------------------------------------------------------------------------------
+3.1 MODELAGEM DE COLECOES
+--------------------------------------------------------------------------------
+
+COLECAO: administradoras
+DOCUMENTO ID: {CNPJ_da_Administradora} (ex: "12345678")
+CAMPOS:
+  - cnpj_raiz: string (8 digitos)
+  - nome_reduzido: string (conteudo de #Nome_da_Administradora)
+  - segmentos_atuantes: array de inteiros [1, 2, 3]
+  - primeiro_registro: string ("2002-01")
+  - ultimo_registro: string ("2024-01")
+  - total_grupos_historico: integer
+  - _importacao: map { ultimo_arquivo, checksum, processado_em: timestamp }
+
+COLECAO: series_consolidadas
+DOCUMENTO ID: {CNPJ}_{Segmento}_{DataBase} (ex: "12345678_1_2024-01")
+CAMPOS:
+  - cnpj_raiz: string
+  - codigo_segmento: integer (1-6)
+  - data_base: string (AAAA-MM)
+  - tipo_segmento: string ("imoveis" se 1, "moveis" se 2-6)
+  
+  - metricas_brutas: map {
+      taxa_de_administracao: number,
+      quantidade_de_grupos_ativos: integer,
+      quantidade_de_grupos_constituidos_no_mes: integer,
+      quantidade_de_grupos_encerrados_no_mes: integer,
+      quantidade_de_cotas_comercializadas_no_mes: integer,
+      quantidade_de_cotas_excluidas_a_comercializar: integer,
+      quantidade_acumulada_de_cotas_ativas_contempladas: integer,
+      quantidade_de_cotas_ativas_nao_contempladas: integer,
+      quantidade_de_cotas_ativas_contempladas_no_mes: integer,
+      quantidade_de_cotas_ativas_em_dia: integer,
+      quantidade_de_cotas_ativas_contempladas_inadimplentes: integer,
+      quantidade_de_cotas_ativas_nao_contempladas_inadimplentes: integer,
+      quantidade_de_cotas_excluidas: integer,
+      quantidade_de_cotas_ativas_quitadas: integer,
+      quantidade_de_cotas_ativas_com_credito_pendente_de_utilizacao: integer
+    }
+  
+  - indicadores_calculados: map {
+      cotas_ativas_total: integer,
+      taxa_inadimplencia_total: number,
+      taxa_inadimplencia_contemplados: number,
+      taxa_inadimplencia_nao_contemplados: number,
+      taxa_contemplacao_mensal: number,
+      taxa_exclusao: number,
+      taxa_quitacao: number,
+      taxa_credito_pendente: number,
+      taxa_substituicao_titularidade: number
+    }
+  
+  - _fonte: map {
+      arquivo_origem: string,
+      linha_no_csv: integer,
+      hash_validacao: string,
+      importado_em: timestamp,
+      versao_layout: string
+    }
+
+COLECAO: grupos_detalhados
+DOCUMENTO ID: 
+  - Imoveis: "{CNPJ}_{CodGrupo}_{DataBase}" (ex: "12345678_GR001_2024-01")
+  - Moveis: "{CNPJ}_{CodGrupo}_{SegDerivado}_{DataBase}" (ex: "12345678_GR001_3_2024-01")
+CAMPOS:
+  - cnpj_raiz: string
+  - codigo_grupo: string
+  - data_base: string
+  - codigo_segmento: integer
+  
+  - caracteristicas: map {
+      numero_assembleias_geral_ordinaria: integer,
+      valor_medio_do_bem: number,
+      indice_correcao: string,
+      taxa_de_administracao: number,
+      prazo_do_grupo_em_meses: integer
+    }
+  
+  - metricas_cotas: map {
+      ativas_em_dia: integer,
+      contempladas_inadimplentes: integer,
+      nao_contempladas_inadimplentes: integer,
+      contempladas_no_mes: integer,
+      contempladas_acumulado: integer,
+      excluidas: integer,
+      quitadas: integer,
+      credito_pendente: integer,
+      excluidas_a_comercializar: integer
+    }
+  
+  - analise_risco: map {
+      status: string ("normal", "alerta", "critico"),
+      motivo: string,
+      percentual_grupo_concluido: number
+    }
+
+COLECAO: dados_trimestrais_uf
+DOCUMENTO ID: {CNPJ}_{UF}_{Segmento}_{DataBase} (ex: "12345678_SP_1_2024-03")
+CAMPOS:
+  - cnpj_raiz: string
+  - uf: string (2 caracteres, maiusculo)
+  - codigo_segmento: integer
+  - data_base: string (AAAA-MM, sempre mes 03, 06, 09 ou 12)
+  
+  - acumulados: map {
+      contemplados_lance: integer,
+      contemplados_sorteio: integer,
+      ativos_nao_contemplados: integer,
+      excluidos_contemplados: integer,
+      excluidos_nao_contemplados: integer
+    }
+  
+  - trimestre: map {
+      contemplados_lance: integer,
+      contemplados_sorteio: integer,
+      excluidos_contemplados: integer,  // [ATENCAO: campo existe apenas para contemplados]
+      adesoes: integer
+    }
+  
+  - totais: map {
+      ativos_total: integer,
+      contemplados_trimestre_total: integer,
+      taxa_contemplacao_trimestral: number,
+      taxa_adesao: number
+    }
+
+COLECAO: indicadores_agregados (Materialized Views)
+DOCUMENTO ID: nacional_segmento_{X}_{AAAA-MM} (ex: "nacional_segmento_1_2024-01")
+CAMPOS:
+  - tipo: string ("aggregated_national")
+  - data_base: string
+  - segmento: integer
+  
+  - totais_nacionais: map {
+      total_adms: integer,
+      total_grupos: integer,
+      total_cotas_ativas: integer,
+      total_cotas_contempladas_mes: integer
+    }
+  
+  - medias_ponderadas: map {
+      taxa_administracao_media: number,
+      taxa_inadimplencia_media: number,
+      prazo_medio: number
+    }
+  
+  - rankings: map {
+      maior_taxa_admin: array de maps {cnpj, nome, valor},
+      maior_inadimplencia: array de maps {cnpj, nome, valor},
+      maior_crescimento: array de maps {cnpj, nome, valor}
+    }
+  
+  - distribuicao_uf: map {
+      "SP": {cotas: integer, percentual: number},
+      "RJ": {cotas: integer, percentual: number}
+      // ... demais UFs
+    }
+
+--------------------------------------------------------------------------------
+3.2 ESTRATEGIA DE IMPORTACAO (CLOUD FUNCTIONS)
+--------------------------------------------------------------------------------
+
+ETAPA 1: UPLOAD E TRIGGER
+- Arquivos CSV sao enviados para Cloud Storage (bucket: gs://consorcio-bcb-dados/)
+- Estrutura de pastas: raw/AAAA/MM/AAAAMMTipo_Arquivo.csv
+- Cloud Function dispara onFinalize do Storage
+
+ETAPA 2: IDENTIFICACAO DO ARQUIVO
+Funcao identificarArquivo(filePath):
+  Se nome contem "Segmentos_Consolidados":
+    Retorna {tipo: 'segmentos', dataBase: 'AAAA-MM', segmento: null}
+  Se nome contem "Bens_Imoveis_Grupos":
+    Retorna {tipo: 'imoveis', dataBase: 'AAAA-MM', segmento: 1}
+  Se nome contem "Bens_Moveis_Grupos":
+    Retorna {tipo: 'moveis', dataBase: 'AAAA-MM', segmento: 'multiplo'}
+  Se nome contem "UF":
+    Retorna {tipo: 'uf', dataBase: 'AAAA-MM', segmento: null}
+
+ETAPA 3: PARSE DO CSV
+Configuracao obrigatoria do parser:
+  - Encoding: ISO-8859-1 (Latin-1)
+  - Delimitador: ; (ponto e virgula)
+  - Cabecalho: primeira linha com nomes exatos dos campos
+  - Tratamento de BOM: remover \uFEFF do inicio do arquivo se presente
+  - Quebra de linha: \n ou \r\n (autodetect)
+
+ETAPA 4: VALIDACAO DE SCHEMA
+Validacoes obrigatorias por registro:
+  1. CNPJ_da_Administradora: exatamente 8 caracteres numericos
+  2. Data_base: formato AAAA-MM, ano entre 2002 e ano atual+1
+  3. Codigo_do_segmento: inteiro entre 1 e 6
+  4. Para tipo 'moveis': validar se consegue extrair dezena do segmento (ex: 31->3)
+  5. Para tipo 'uf': validar se mes e 03, 06, 09 ou 12
+
+ETAPA 5: TRANSFORMACAO E CALCULO
+Para cada registro valido:
+  A. Criar estrutura base com campos brutos
+  B. Calcular indicadores derivados:
+       cotas_ativas_total = em_dia + cont_inad + nao_cont_inad
+       taxa_inadimplencia_total = (cont_inad + nao_cont_inad) / cotas_ativas_total
+       [demais formulas da secao 2]
+  C. Criar document ID deterministico baseado nas chaves naturais
+  D. Adicionar metadados de auditoria (_fonte)
+
+ETAPA 6: BATCH WRITE
+- Agrupar documentos em batches de 400 (limite Firestore: 500, usar margem de seguranca)
+- Usar WriteBatch para commit atomico
+- Em caso de erro, retry com backoff exponencial
+- Registrar log de sucesso/falha por batch
+
+ETAPA 7: ATUALIZACAO DE VIEWS MATERIALIZADAS
+Apos importacao completa de um mes:
+  - Executar funcao agregadora que calcula totais nacionais
+  - Atualizar documentos em indicadores_agregados
+  - Gerar rankings (top 10 por criterio)
+  - Calcular distribuicao por UF
+
+ETAPA 8: MOVIMENTACAO DO ARQUIVO
+- Mover arquivo de raw/ para processed/AAAA/MM/
+- Registrar em config_importacao o status de concluido
+
+--------------------------------------------------------------------------------
+3.3 INDICES FIRESTORE NECESSARIOS
+--------------------------------------------------------------------------------
+Criar no firebase.indexes.json:
+
+Collection: series_consolidadas
+  - Campos: cnpj_raiz (Asc), data_base (Desc)
+  - Campos: codigo_segmento (Asc), data_base (Desc), indicadores_calculados.taxa_inadimplencia_total (Desc)
+  - Campos: data_base (Desc), codigo_segmento (Asc)
+
+Collection: grupos_detalhados
+  - Campos: cnpj_raiz (Asc), data_base (Desc), codigo_segmento (Asc)
+  - Campos: cnpj_raiz (Asc), codigo_segmento (Asc), caracteristicas.valor_medio_do_bem (Desc)
+
+Collection: dados_trimestrais_uf
+  - Campos: uf (Asc), data_base (Desc)
+  - Campos: cnpj_raiz (Asc), uf (Asc), data_base (Desc)
+
+Collection: indicadores_agregados
+  - Campos: data_base (Desc), segmento (Asc)
+
+--------------------------------------------------------------------------------
+3.4 REGRAS DE SEGURANCA FIRESTORE
+--------------------------------------------------------------------------------
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Dados publicos - leitura aberta
+    match /series_consolidadas/{doc} {
+      allow read: if true;
+      allow write: if false; // Apenas via Admin SDK / Cloud Functions
+    }
+    
+    match /grupos_detalhados/{doc} {
+      allow read: if true;
+      allow write: if false;
+    }
+    
+    match /indicadores_agregados/{doc} {
+      allow read: if true;
+      allow write: if false;
+    }
+    
+    match /dados_trimestrais_uf/{doc} {
+      allow read: if true;
+      allow write: if false;
+    }
+    
+    // Dados administrativos - restritos
+    match /administradoras/{doc} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.token.admin == true;
+    }
+    
+    match /config_importacao/{doc} {
+      allow read, write: if request.auth != null && request.auth.token.admin == true;
+    }
+  }
+}
+
+--------------------------------------------------------------------------------
+3.5 PADROES DE CONSUMO (CLIENT-SIDE)
+--------------------------------------------------------------------------------
+
+PADRAO 1: Serie temporal de uma administradora
+  Collection: series_consolidadas
+  Query: where("cnpj_raiz", "==", cnpj)
+         where("codigo_segmento", "==", segmento)
+         orderBy("data_base", "desc")
+         limit(12)
+  Custo: O(N) onde N = numero de meses (eficiente)
+
+PADRAO 2: Ranking nacional (uso de Materialized View)
+  Collection: indicadores_agregados
+  Doc ID: "nacional_segmento_{X}_{AAAA-MM}"
+  Custo: 1 leitura (O(1)) - altamente eficiente
+
+PADRAO 3: Detalhamento de grupos
+  Collection: grupos_detalhados
+  Query: where("cnpj_raiz", "==", cnpj)
+         where("data_base", "==", dataBase)
+         orderBy("caracteristicas.valor_medio_do_bem", "desc")
+  Custo: O(N) onde N = numero de grupos da administradora
+
+PADRAO 4: Comparativo geografico (UF)
+  Collection: dados_trimestrais_uf
+  Query: where("uf", "in", ["SP", "RJ", "MG"])
+         where("data_base", "==", "2024-03")
+         where("codigo_segmento", "==", 1)
+  NOTA: Operador "in" limitado a 10 valores, para mais UFs usar multiplas queries
+
+================================================================================
+4. CHECKLIST DE VALIDACAO E ACURACIA (99,99%)
+================================================================================
+
+REGRAS DE NEGOCIO VALIDADAS:
+[X] Segmento 1 (Imoveis): Arquivo separado, numero de assembleia = valor real contado
+[X] Segmentos 2-6 (Moveis): Segmento = dezena do codigo (ex: 31->3)
+[X] Segmentos 2-6 (Moveis): Um grupo pode ter multiplos segmentos (multiplos docs)
+[X] Segmentos 2-6 (Moveis): Numero de assembleia = calculo temporal (meses desde inicio)
+[X] Arquivo UF: Trimestral apenas (meses 03, 06, 09, 12)
+[X] Arquivo UF: Campos "no_trimestre" sao fluxos (exceto excluidos nao contemplados que nao existe)
+[X] Arquivo UF: Campos sem sufixo sao acumulados (exceto nao contemplados que e posicao atual)
+
+VALIDACAO MATEMATICA:
+[X] Cotas Ativas Total = Em dia + Contempladas inadimplentes + Nao contempladas inadimplentes
+[X] Inadimplencia = Percentual em atraso >= Percentual de amortizacao mensal
+[X] Taxa de administracao nos consolidados ja vem calculada (media ponderada)
+[X] Taxa de administracao nos grupos moveis = media de (antecipada + normal)
+
+INTEGRIDADE REFERENCIAL:
+[X] Chaves deterministicas permitem reprocessamento idempotente
+[X] CNPJ sempre 8 digitos (raiz)
+[X] Data_base sempre formato AAAA-MM
+[X] Nomes de campos preservam acentuacao e caracteres especiais originais
+
+ESTRATEGIA FIREBASE:
+[X] Batch writes limitados a 400 docs (margem abaixo do limite 500)
+[X] Materialized views para evitar agregacoes em tempo real (custo proibitivo)
+[X] Indices compostos definidos para queries com orderBy
+[X] Collection separada para metadados de importacao (auditoria)
+[X] Regra de seguranca: dados publicos para leitura, escrita apenas via Admin/Functions
+
+RECONCILIACAO SUGERIDA (Job de Validacao):
+  Executar apos cada importacao mensal:
+  1. Somar Quantidade_de_cotas_ativas_em_dia de todos os grupos de uma adm/segmento
+  2. Comparar com valor no Segmentos_Consolidados para mesma adm/segmento
+  3. Diferenca aceitavel: < 0,01% (erros de arredondamento)
+  4. Se diferenca > 0,01%, alertar inconsistencia nos logs
+
+================================================================================
+5. OBSERVACOES FINAIS E CUIDADOS ESPECIAIS
+================================================================================
+
+1. CAMPO COM ESPACO NO NOME:
+   No arquivo UF, o campo "Quantidade_de_consorciados_excluídos_contemplados_no_ trimestre" 
+   contem um espaco entre "no_" e "trimestre". O parser deve tratar isso corretamente 
+   ou o header vira com espaco duplo.
+
+2. ENCODING DOS ARQUIVOS:
+   Os arquivos do BCB usam ISO-8859-1 (Latin-1). Caracteres como "ç", "õ", "á" aparecem 
+   codificados. O parser CSV deve especificar encoding='latin1' para evitar erros de 
+   leitura nos nomes das administradoras.
+
+3. DELIMITADOR:
+   Os arquivos usam ponto-e-virgula (;) e nao virgula (,). Configurar o parser 
+   adequadamente.
+
+4. VALORES NULOS:
+   Campos numericos nulos devem ser tratados como 0 (zero) nos calculos.
+   Campos de data nulos devem ser ignorados ou marcados como invalidos.
+
+5. CONSISTENCIA TRIMESTRAL:
+   O arquivo UF so existe para meses 03, 06, 09 e 12. Nao tentar processar para 
+   outros meses (fevereiro, abril, etc).
+
+6. MULTIPLOS SEGMENTOS POR GRUPO (Moveis):
+   Ao processar Bens_Moveis_Grupos, um mesmo Código_do_grupo pode gerar multiplos 
+   documentos no Firestore (um para cada segmento encontrado nas cotas). 
+   O document ID deve incluir o segmento derivado para garantir unicidade.
+
+7. BACKUP E IDEMPOTENCIA:
+   Sempre usar merge: true ou set com ID deterministico. Isso permite reprocessar 
+   um arquivo sem duplicar dados.
+
+================================================================================
+FIM DO DOCUMENTO
+================================================================================

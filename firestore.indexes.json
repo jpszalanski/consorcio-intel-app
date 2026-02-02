@@ -1,0 +1,133 @@
+{
+    "indexes": [
+        {
+            "collectionGroup": "series_consolidadas",
+            "queryScope": "COLLECTION",
+            "fields": [
+                {
+                    "fieldPath": "cnpj_raiz",
+                    "order": "ASCENDING"
+                },
+                {
+                    "fieldPath": "data_base",
+                    "order": "DESCENDING"
+                }
+            ]
+        },
+        {
+            "collectionGroup": "series_consolidadas",
+            "queryScope": "COLLECTION",
+            "fields": [
+                {
+                    "fieldPath": "codigo_segmento",
+                    "order": "ASCENDING"
+                },
+                {
+                    "fieldPath": "data_base",
+                    "order": "DESCENDING"
+                },
+                {
+                    "fieldPath": "indicadores_calculados.taxa_inadimplencia_total",
+                    "order": "DESCENDING"
+                }
+            ]
+        },
+        {
+            "collectionGroup": "series_consolidadas",
+            "queryScope": "COLLECTION",
+            "fields": [
+                {
+                    "fieldPath": "data_base",
+                    "order": "DESCENDING"
+                },
+                {
+                    "fieldPath": "codigo_segmento",
+                    "order": "ASCENDING"
+                }
+            ]
+        },
+        {
+            "collectionGroup": "grupos_detalhados",
+            "queryScope": "COLLECTION",
+            "fields": [
+                {
+                    "fieldPath": "cnpj_raiz",
+                    "order": "ASCENDING"
+                },
+                {
+                    "fieldPath": "data_base",
+                    "order": "DESCENDING"
+                },
+                {
+                    "fieldPath": "codigo_segmento",
+                    "order": "ASCENDING"
+                }
+            ]
+        },
+        {
+            "collectionGroup": "grupos_detalhados",
+            "queryScope": "COLLECTION",
+            "fields": [
+                {
+                    "fieldPath": "cnpj_raiz",
+                    "order": "ASCENDING"
+                },
+                {
+                    "fieldPath": "codigo_segmento",
+                    "order": "ASCENDING"
+                },
+                {
+                    "fieldPath": "caracteristicas.valor_medio_do_bem",
+                    "order": "DESCENDING"
+                }
+            ]
+        },
+        {
+            "collectionGroup": "dados_trimestrais_uf",
+            "queryScope": "COLLECTION",
+            "fields": [
+                {
+                    "fieldPath": "uf",
+                    "order": "ASCENDING"
+                },
+                {
+                    "fieldPath": "data_base",
+                    "order": "DESCENDING"
+                }
+            ]
+        },
+        {
+            "collectionGroup": "dados_trimestrais_uf",
+            "queryScope": "COLLECTION",
+            "fields": [
+                {
+                    "fieldPath": "cnpj_raiz",
+                    "order": "ASCENDING"
+                },
+                {
+                    "fieldPath": "uf",
+                    "order": "ASCENDING"
+                },
+                {
+                    "fieldPath": "data_base",
+                    "order": "DESCENDING"
+                }
+            ]
+        },
+        {
+            "collectionGroup": "indicadores_agregados",
+            "queryScope": "COLLECTION",
+            "fields": [
+                {
+                    "fieldPath": "data_base",
+                    "order": "DESCENDING"
+                },
+                {
+                    "fieldPath": "segmento",
+                    "order": "ASCENDING"
+                }
+            ]
+        }
+    ],
+    "fieldOverrides": []
+}
