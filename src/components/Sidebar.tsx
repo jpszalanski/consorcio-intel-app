@@ -1,22 +1,24 @@
 
 import React from 'react';
-import { LayoutDashboard, TrendingUp, Map, PieChart, Briefcase, Activity, Menu, Database } from 'lucide-react';
+import { LayoutDashboard, TrendingUp, Map, PieChart, Briefcase, Activity, Menu, Database, Building2, Wifi, WifiOff } from 'lucide-react';
 
 interface SidebarProps {
   activeTab: string;
   setActiveTab: (tab: string) => void;
   isMobileOpen: boolean;
   setIsMobileOpen: (open: boolean) => void;
+  dbStatus?: boolean; // Novo prop para status do banco
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isMobileOpen, setIsMobileOpen }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isMobileOpen, setIsMobileOpen, dbStatus = false }) => {
   const menuItems = [
     { id: 'dashboard', label: 'Visão Geral', icon: LayoutDashboard },
+    { id: 'admin_analysis', label: 'Análise por Adm.', icon: Building2 },
+    { id: 'operational', label: 'Performance Oper.', icon: Activity }, // Novo Item
     { id: 'competitive', label: 'Posicionamento Competitivo', icon: PieChart },
     { id: 'trends', label: 'Tendências de Mercado', icon: TrendingUp },
     { id: 'regional', label: 'Análise Regional', icon: Map },
     { id: 'import', label: 'Importar Dados', icon: Database },
-    { id: 'operational', label: 'Performance Operacional', icon: Activity },
   ];
 
   return (
@@ -66,13 +68,25 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isMob
         </nav>
 
         <div className="absolute bottom-0 w-full p-6 border-t border-slate-800 bg-slate-950/50">
-          <div className="rounded-xl bg-slate-800/50 p-4 border border-slate-700/50">
-            <h4 className="text-[10px] font-bold uppercase text-slate-500 mb-2 tracking-widest">Status da API</h4>
-            <div className="flex items-center gap-2">
-              <div className={`h-2 w-2 rounded-full ${process.env.API_KEY ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
-              <span className="text-xs font-medium text-slate-300">
-                {process.env.API_KEY ? 'Gemini 3 Pro Ativo' : 'Chave Offline'}
-              </span>
+          <div className="rounded-xl bg-slate-800/50 p-4 border border-slate-700/50 space-y-3">
+            <div>
+              <h4 className="text-[10px] font-bold uppercase text-slate-500 mb-2 tracking-widest">Status da API</h4>
+              <div className="flex items-center gap-2">
+                <div className={`h-2 w-2 rounded-full ${process.env.API_KEY ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
+                <span className="text-xs font-medium text-slate-300">
+                  {process.env.API_KEY ? 'Gemini 3 Pro' : 'Chave Offline'}
+                </span>
+              </div>
+            </div>
+            
+            <div className="pt-3 border-t border-slate-700/50">
+              <h4 className="text-[10px] font-bold uppercase text-slate-500 mb-2 tracking-widest">Banco de Dados</h4>
+              <div className="flex items-center gap-2">
+                {dbStatus ? <Wifi size={14} className="text-green-500" /> : <WifiOff size={14} className="text-red-500" />}
+                <span className={`text-xs font-medium ${dbStatus ? 'text-green-400' : 'text-red-400'}`}>
+                  {dbStatus ? 'Firestore Online' : 'Desconectado'}
+                </span>
+              </div>
             </div>
           </div>
         </div>
