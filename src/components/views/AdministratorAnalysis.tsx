@@ -206,7 +206,7 @@ export const AdministratorAnalysis: React.FC<Props> = ({ data }) => {
 
     const context = `
       Relatório Adm: ${metricsA.name}.
-      - Saldo Carteira: R$ ${(metricsA.totalBalance / 1000000).toFixed(1)}M
+      - Saldo Carteira: R$ ${(metricsA.totalBalance / 1000000).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}M
       - Prazo Médio Ponderado: ${metricsA.avgTerm.toFixed(0)} meses
       - Vendas/Grupo: ${metricsA.salesPerGroup.toFixed(1)} (Eficiência)
       - Taxa Adm: ${metricsA.avgAdminFee.toFixed(2)}%
@@ -371,9 +371,9 @@ export const AdministratorAnalysis: React.FC<Props> = ({ data }) => {
                   <tr key={s.name} className="hover:bg-slate-50">
                     <td className="px-6 py-3 font-medium text-slate-900">{s.name}</td>
                     <td className="px-6 py-3 text-right text-blue-700 font-bold bg-blue-50/20">
-                      {s.balance > 0 ? `R$ ${(s.balance / 1000000).toFixed(1)}M` : '-'}
+                      {s.balance > 0 ? `R$ ${(s.balance / 1000000).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}M` : '-'}
                     </td>
-                    <td className="px-6 py-3 text-right">{s.active.toLocaleString()}</td>
+                    <td className="px-6 py-3 text-right">{s.active.toLocaleString('pt-BR')}</td>
                     <td className="px-6 py-3 text-center">{s.avgFee > 0 ? `${s.avgFee.toFixed(2)}%` : '-'}</td>
                     <td className="px-6 py-3 text-center">
                       <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${s.defaultRate > 5 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
@@ -403,7 +403,7 @@ export const AdministratorAnalysis: React.FC<Props> = ({ data }) => {
                         <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                       ))}
                     </Pie>
-                    <Tooltip formatter={(value: number) => `R$ ${(value / 1000000).toFixed(1)}M`} />
+                    <Tooltip formatter={(value: number) => `R$ ${(value / 1000000).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}M`} />
                     <Legend verticalAlign="bottom" />
                   </PieChart>
                 </ResponsiveContainer>
@@ -421,7 +421,7 @@ export const AdministratorAnalysis: React.FC<Props> = ({ data }) => {
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                   <XAxis dataKey="period" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#94a3b8' }} />
                   <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#94a3b8' }} tickFormatter={(val) => `R$${(val / 1000000).toFixed(0)}M`} />
-                  <Tooltip formatter={(value: number) => [`R$ ${(value / 1000000).toFixed(2)}M`, 'Saldo']} />
+                  <Tooltip formatter={(value: number) => [`R$ ${(value / 1000000).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}M`, 'Saldo']} />
                   <Line type="monotone" dataKey="balance" stroke="#3b82f6" strokeWidth={3} dot={{ r: 4 }} />
                 </LineChart>
               </ResponsiveContainer>

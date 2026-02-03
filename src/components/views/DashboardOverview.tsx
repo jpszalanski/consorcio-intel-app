@@ -208,13 +208,13 @@ export const DashboardOverview: React.FC<Props> = ({ data }) => {
     setLoadingInsight(true);
     const context = `
       Cenário Atual de Mercado (Consórcio):
-      - Volume Financeiro Total: R$ ${(kpis.balanceVolume / 1000000).toFixed(1)} Milhões
-      - Cotas Ativas: ${kpis.activeQuotas.toLocaleString()}
-      - Segmento Líder (Volume): ${segmentBreakdown[0]?.name} (R$ ${(segmentBreakdown[0]?.volume / 1000000).toFixed(1)}M)
-      - Inadimplência Média: ${kpis.defaultRate.toFixed(2)}%
-      - Taxa de Quitação: ${kpis.quitationRate.toFixed(2)}%
-      - Rotatividade (Exclusão): ${kpis.dropoutRate.toFixed(2)}%
-      - Ticket Médio: R$ ${kpis.avgTicket.toFixed(0)}
+      - Volume Financeiro Total: R$ ${(kpis.balanceVolume / 1000000).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} Milhões
+      - Cotas Ativas: ${kpis.activeQuotas.toLocaleString('pt-BR')}
+      - Segmento Líder (Volume): ${segmentBreakdown[0]?.name} (R$ ${(segmentBreakdown[0]?.volume / 1000000).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}M)
+      - Inadimplência Média: ${kpis.defaultRate.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%
+      - Taxa de Quitação: ${kpis.quitationRate.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%
+      - Rotatividade (Exclusão): ${kpis.dropoutRate.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%
+      - Ticket Médio: R$ ${kpis.avgTicket.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
     `;
     const result = await generateMarketInsight(context, { history: filteredData.slice(-6) });
     setInsightData(result);
@@ -309,19 +309,19 @@ export const DashboardOverview: React.FC<Props> = ({ data }) => {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         <MetricsCard
           title="Volume Financeiro (Carteira)"
-          value={`R$ ${(kpis.balanceVolume / 1000000).toFixed(1)}M`}
+          value={`R$ ${(kpis.balanceVolume / 1000000).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}M`}
           trend={Number(kpis.volumeTrend.toFixed(1))}
           trendLabel="vs. anterior"
           color="blue"
         />
         <MetricsCard
           title="Cotas Ativas"
-          value={kpis.activeQuotas.toLocaleString()}
+          value={kpis.activeQuotas.toLocaleString('pt-BR')}
           color="emerald"
         />
         <MetricsCard
           title="Ticket Médio"
-          value={`R$ ${kpis.avgTicket.toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
+          value={`R$ ${kpis.avgTicket.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}`}
           color="violet"
         />
         <MetricsCard
@@ -368,7 +368,7 @@ export const DashboardOverview: React.FC<Props> = ({ data }) => {
                     <Cell key={`cell-${index}`} fill={SEGMENT_COLORS[entry.name] || '#94a3b8'} />
                   ))}
                 </Pie>
-                <Tooltip formatter={(value: number) => `R$ ${(value / 1000000).toFixed(1)}M`} />
+                <Tooltip formatter={(value: number) => `R$ ${(value / 1000000).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}M`} />
                 <Legend />
               </PieChart>
             </ResponsiveContainer>
@@ -393,7 +393,7 @@ export const DashboardOverview: React.FC<Props> = ({ data }) => {
                 <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} />
                 <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} tickFormatter={(val) => `R$${(val / 1000000).toFixed(0)}M`} />
                 <Tooltip
-                  formatter={(value: number) => [`R$ ${(value / 1000000).toFixed(2)}M`, 'Volume']}
+                  formatter={(value: number) => [`R$ ${(value / 1000000).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}M`, 'Volume']}
                   contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
                 />
                 <Area type="monotone" dataKey="volume" stroke="#2563eb" strokeWidth={3} fillOpacity={1} fill="url(#colorVolume)" />
