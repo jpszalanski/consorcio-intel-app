@@ -1,6 +1,7 @@
 
 import React, { useState, useRef } from 'react';
 import { CheckCircle2, AlertCircle, Trash2, Database, Loader2, CloudUpload, AlertTriangle, ArrowRight, TableProperties } from 'lucide-react';
+import { BigQueryImport } from './BigQueryImport';
 import { dataStore } from '../../services/dataStore';
 import { ImportedFileLog, BacenSegment } from '../../types';
 
@@ -24,6 +25,7 @@ const normalizeKey = (str: string) => {
 };
 
 export const DataImport: React.FC = () => {
+  const [importMode, setImportMode] = useState<'legacy' | 'bigquery'>('legacy');
   const [dragActive, setDragActive] = useState(false);
   const [processedQueue, setProcessedQueue] = useState<ProcessedFile[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -148,98 +150,124 @@ export const DataImport: React.FC = () => {
         </p>
       </div>
 
-      <div
-        onClick={() => setClearBeforeImport(!clearBeforeImport)}
-        className={`border rounded-xl p-4 flex items-start gap-4 cursor-pointer transition-all select-none ${clearBeforeImport
-          ? 'bg-amber-50 border-amber-200'
-          : 'bg-white border-slate-200 hover:border-slate-300'
-          }`}
-      >
-        <div className={`mt-1 transition-colors ${clearBeforeImport ? 'text-amber-600' : 'text-slate-400'}`}>
-          {clearBeforeImport ? <AlertTriangle size={24} /> : <Database size={24} />}
+      <div className="flex justify-center mb-8">
+        <div className="bg-slate-100 p-1 rounded-xl inline-flex">
+          <button
+            onClick={() => setImportMode('legacy')}
+            className={`px-6 py-2 rounded-lg text-sm font-bold transition-all ${importMode === 'legacy' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+              }`}
+          >
+            Importação Direta (Legado)
+          </button>
+          <button
+            onClick={() => setImportMode('bigquery')}
+            className={`px-6 py-2 rounded-lg text-sm font-bold transition-all ${importMode === 'bigquery' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700'
+              }`}
+          >
+            Importação BigQuery (Cloud)
+          </button>
         </div>
+      </div>
 
-        <div className="flex-1">
-          <div className="flex items-center justify-between">
-            <h3 className={`font-bold text-sm ${clearBeforeImport ? 'text-amber-900' : 'text-slate-700'}`}>
-              Limpeza Prévia (Reset Completo)
-            </h3>
+      {importMode === 'bigquery' ? (
+        <BigQueryImport />
+      ) : (
+        <>
 
-            <div className={`w-11 h-6 rounded-full relative transition-colors ${clearBeforeImport ? 'bg-amber-500' : 'bg-slate-300'}`}>
-              <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm transition-transform duration-200 ${clearBeforeImport ? 'translate-x-6' : 'translate-x-1'}`} />
+          <div
+            onClick={() => setClearBeforeImport(!clearBeforeImport)}
+            className={`border rounded-xl p-4 flex items-start gap-4 cursor-pointer transition-all select-none ${clearBeforeImport
+              ? 'bg-amber-50 border-amber-200'
+              : 'bg-white border-slate-200 hover:border-slate-300'
+              }`}
+          >
+            <div className={`mt-1 transition-colors ${clearBeforeImport ? 'text-amber-600' : 'text-slate-400'}`}>
+              {clearBeforeImport ? <AlertTriangle size={24} /> : <Database size={24} />}
+            </div>
+
+            <div className="flex-1">
+              <div className="flex items-center justify-between">
+                <h3 className={`font-bold text-sm ${clearBeforeImport ? 'text-amber-900' : 'text-slate-700'}`}>
+                  Limpeza Prévia (Reset Completo)
+                </h3>
+
+                <div className={`w-11 h-6 rounded-full relative transition-colors ${clearBeforeImport ? 'bg-amber-500' : 'bg-slate-300'}`}>
+                  <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm transition-transform duration-200 ${clearBeforeImport ? 'translate-x-6' : 'translate-x-1'}`} />
+                </div>
+              </div>
+              <p className={`text-sm mt-1 leading-relaxed ${clearBeforeImport ? 'text-amber-800' : 'text-slate-500'}`}>
+                {clearBeforeImport
+                  ? "Ativado: Apaga TUDO antes da carga."
+                  : "Desativado: Adiciona novos dados ao banco existente."}
+              </p>
             </div>
           </div>
-          <p className={`text-sm mt-1 leading-relaxed ${clearBeforeImport ? 'text-amber-800' : 'text-slate-500'}`}>
-            {clearBeforeImport
-              ? "Ativado: Apaga TUDO antes da carga."
-              : "Desativado: Adiciona novos dados ao banco existente."}
-          </p>
-        </div>
-      </div>
 
-      <div
-        className={`relative border-2 border-dashed rounded-2xl p-12 transition-all cursor-pointer flex flex-col items-center justify-center gap-4 group ${dragActive ? 'border-blue-500 bg-blue-50/50' : 'border-slate-300 hover:border-blue-400 hover:bg-slate-50'
-          }`}
-        onDragEnter={() => setDragActive(true)}
-        onDragLeave={() => setDragActive(false)}
-        onDrop={(e) => {
-          e.preventDefault();
-          setDragActive(false);
-          if (e.dataTransfer.files) handleFiles(Array.from(e.dataTransfer.files));
-        }}
-        onClick={() => currentStep === 'idle' && fileInputRef.current?.click()}
-      >
-        <input ref={fileInputRef} type="file" accept=".csv,.txt" multiple className="hidden" onChange={(e) => e.target.files && handleFiles(Array.from(e.target.files))} disabled={currentStep !== 'idle'} />
-        <div className="w-16 h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center shadow-sm group-hover:scale-110 transition-transform">
-          {isProcessing || currentStep !== 'idle' ? <Loader2 className="animate-spin" size={32} /> : <CloudUpload size={32} />}
-        </div>
-        <div className="text-center">
-          <p className="text-lg font-bold text-slate-800">
-            {currentStep === 'idle' ? 'Clique ou Arraste os arquivos CSV' : statusMessage || 'Processando...'}
-          </p>
-          {currentStep === 'idle' && (
-            <p className="text-sm text-slate-500">Suporta: Segmentos, Bens Imóveis, Bens Móveis, DadosPorUF</p>
-          )}
-        </div>
-      </div>
-
-      {processedQueue.length > 0 && (
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-          <div className="bg-slate-50 px-6 py-4 border-b border-slate-200">
-            <h3 className="font-bold text-slate-700 flex items-center gap-2"><TableProperties size={18} /> Arquivos para Staging (Tabelas Temporárias)</h3>
-          </div>
-          <div className="divide-y divide-slate-100 max-h-[300px] overflow-y-auto custom-scrollbar">
-            {processedQueue.map((item, idx) => (
-              <div key={idx} className="p-4 flex items-center justify-between hover:bg-slate-50">
-                <div className="flex items-center gap-4">
-                  <div className="bg-slate-100 p-2 rounded-lg">
-                    {item.status === 'ready' ? <CheckCircle2 className="text-emerald-500" size={20} /> : <AlertCircle className="text-red-500" size={20} />}
-                  </div>
-                  <div>
-                    <p className="font-medium text-slate-900 text-sm">{item.file.name}</p>
-                    <p className="text-xs text-slate-500">
-                      {item.data.length} registros brutos • {item.type ? <span className="text-blue-600 font-bold uppercase">{item.type}</span> : <span className="text-red-500">TIPO DESCONHECIDO</span>}
-                    </p>
-                  </div>
-                </div>
-                <button onClick={() => setProcessedQueue(prev => prev.filter((_, i) => i !== idx))} className="text-slate-400 hover:text-red-500"><Trash2 size={18} /></button>
-              </div>
-            ))}
-          </div>
-          <div className="p-6 bg-slate-50 border-t border-slate-200 flex justify-end gap-4">
-            <button
-              onClick={handleImportFlow}
-              disabled={currentStep !== 'idle' || processedQueue.filter(f => f.status === 'ready').length === 0}
-              className="bg-slate-900 text-white px-8 py-3 rounded-xl font-bold shadow-lg hover:bg-slate-800 disabled:opacity-50 flex items-center gap-3"
-            >
-              {currentStep !== 'idle' ? (
-                <><Loader2 className="animate-spin" size={20} /> {statusMessage || 'Processando...'}</>
-              ) : (
-                <><ArrowRight size={20} /> Iniciar Carga e Tratamento</>
+          <div
+            className={`relative border-2 border-dashed rounded-2xl p-12 transition-all cursor-pointer flex flex-col items-center justify-center gap-4 group ${dragActive ? 'border-blue-500 bg-blue-50/50' : 'border-slate-300 hover:border-blue-400 hover:bg-slate-50'
+              }`}
+            onDragEnter={() => setDragActive(true)}
+            onDragLeave={() => setDragActive(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragActive(false);
+              if (e.dataTransfer.files) handleFiles(Array.from(e.dataTransfer.files));
+            }}
+            onClick={() => currentStep === 'idle' && fileInputRef.current?.click()}
+          >
+            <input ref={fileInputRef} type="file" accept=".csv,.txt" multiple className="hidden" onChange={(e) => e.target.files && handleFiles(Array.from(e.target.files))} disabled={currentStep !== 'idle'} />
+            <div className="w-16 h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center shadow-sm group-hover:scale-110 transition-transform">
+              {isProcessing || currentStep !== 'idle' ? <Loader2 className="animate-spin" size={32} /> : <CloudUpload size={32} />}
+            </div>
+            <div className="text-center">
+              <p className="text-lg font-bold text-slate-800">
+                {currentStep === 'idle' ? 'Clique ou Arraste os arquivos CSV' : statusMessage || 'Processando...'}
+              </p>
+              {currentStep === 'idle' && (
+                <p className="text-sm text-slate-500">Suporta: Segmentos, Bens Imóveis, Bens Móveis, DadosPorUF</p>
               )}
-            </button>
+            </div>
           </div>
-        </div>
+
+          {processedQueue.length > 0 && (
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+              <div className="bg-slate-50 px-6 py-4 border-b border-slate-200">
+                <h3 className="font-bold text-slate-700 flex items-center gap-2"><TableProperties size={18} /> Arquivos para Staging (Tabelas Temporárias)</h3>
+              </div>
+              <div className="divide-y divide-slate-100 max-h-[300px] overflow-y-auto custom-scrollbar">
+                {processedQueue.map((item, idx) => (
+                  <div key={idx} className="p-4 flex items-center justify-between hover:bg-slate-50">
+                    <div className="flex items-center gap-4">
+                      <div className="bg-slate-100 p-2 rounded-lg">
+                        {item.status === 'ready' ? <CheckCircle2 className="text-emerald-500" size={20} /> : <AlertCircle className="text-red-500" size={20} />}
+                      </div>
+                      <div>
+                        <p className="font-medium text-slate-900 text-sm">{item.file.name}</p>
+                        <p className="text-xs text-slate-500">
+                          {item.data.length} registros brutos • {item.type ? <span className="text-blue-600 font-bold uppercase">{item.type}</span> : <span className="text-red-500">TIPO DESCONHECIDO</span>}
+                        </p>
+                      </div>
+                    </div>
+                    <button onClick={() => setProcessedQueue(prev => prev.filter((_, i) => i !== idx))} className="text-slate-400 hover:text-red-500"><Trash2 size={18} /></button>
+                  </div>
+                ))}
+              </div>
+              <div className="p-6 bg-slate-50 border-t border-slate-200 flex justify-end gap-4">
+                <button
+                  onClick={handleImportFlow}
+                  disabled={currentStep !== 'idle' || processedQueue.filter(f => f.status === 'ready').length === 0}
+                  className="bg-slate-900 text-white px-8 py-3 rounded-xl font-bold shadow-lg hover:bg-slate-800 disabled:opacity-50 flex items-center gap-3"
+                >
+                  {currentStep !== 'idle' ? (
+                    <><Loader2 className="animate-spin" size={20} /> {statusMessage || 'Processando...'}</>
+                  ) : (
+                    <><ArrowRight size={20} /> Iniciar Carga e Tratamento</>
+                  )}
+                </button>
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
