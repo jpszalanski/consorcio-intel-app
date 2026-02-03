@@ -1,9 +1,9 @@
 
 import React, { useState, useMemo } from 'react';
 import { AppDataStore } from '../../types';
-import { 
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
-  ScatterChart, Scatter, ZAxis, Legend, Cell, PieChart, Pie 
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  ScatterChart, Scatter, ZAxis, Legend, Cell, PieChart, Pie
 } from 'recharts';
 import { Activity, ArrowRightLeft, TrendingDown, Search, Scale } from 'lucide-react';
 
@@ -13,36 +13,46 @@ interface Props {
 
 export const OperationalPerformance: React.FC<Props> = ({ data }) => {
   const [selectedAdminId, setSelectedAdminId] = useState<string>('');
-  
-  // Lista única de administradoras que possuem dados operacionais (Regional Data)
+
+  // Helper to get admin name
+  const getAdminName = (cnpj: string) => {
+    const admin = data.administrators.find(a => a.cnpj_raiz === cnpj);
+    return admin?.nome_reduzido || admin?.cnpj_raiz || cnpj;
+  };
+
+  // Lista única de administradoras que possuem dados operacionais (Quarterly/UF Data)
   const validAdmins = useMemo(() => {
-    // Normaliza nomes para garantir match
-    const adminsWithData = new Set(data.regional.map(r => r.adminName?.trim()));
+    const adminsWithData = new Set(data.quarterly.map(r => r.cnpj_raiz));
     return data.administrators
-      .filter(a => adminsWithData.has(a.name?.trim()))
-      .sort((a, b) => a.name.localeCompare(b.name));
+      .filter(a => adminsWithData.has(a.cnpj_raiz))
+      .sort((a, b) => (a.nome_reduzido || '').localeCompare(b.nome_reduzido || ''));
   }, [data]);
 
   // Cálculo de Métricas de Mercado (Scatter Plot)
   const marketScatterData = useMemo(() => {
     const adminMap = new Map();
 
-    data.regional.forEach(reg => {
-      const name = reg.adminName?.trim();
-      if (!name) return;
-      
-      if (!adminMap.has(name)) {
-        adminMap.set(name, { 
-          name: name, 
-          adhesions: 0, 
-          dropouts: 0, 
-          totalActive: 0 
+    data.quarterly.forEach(ufData => {
+      const cnpj = ufData.cnpj_raiz;
+      const name = getAdminName(cnpj);
+
+      if (!adminMap.has(cnpj)) {
+        adminMap.set(cnpj, {
+          name: name,
+          adhesions: 0,
+          dropouts: 0,
+          totalActive: 0
         });
       }
-      const curr = adminMap.get(name);
-      curr.adhesions += (reg.newAdhesionsQuarter || 0);
-      curr.dropouts += (reg.dropoutNonContemplated || 0);
-      curr.totalActive += (reg.totalActive || 0);
+      const curr = adminMap.get(cnpj);
+      // Mapping: 
+      // Adhesions -> trimestre.adesoes
+      // Dropouts -> Use trimestre.excluidos_contemplados (Proxy for quarter flow) or acumulados logic?
+      // Using 'totais.excluidos_contemplados' from RegionalAnalysis logic which is mapped from Source? 
+      // Actually RegionalAnalysis uses `item.totais.excluidos_contemplados`.
+      curr.adhesions += (ufData.trimestre.adesoes || 0);
+      curr.dropouts += (ufData.trimestre.excluidos_contemplados || 0); // Note: Only counts contemplated exclusions in quarter
+      curr.totalActive += (ufData.totais.ativos_total || 0);
     });
 
     return Array.from(adminMap.values())
@@ -54,24 +64,27 @@ export const OperationalPerformance: React.FC<Props> = ({ data }) => {
         replacementRatio: a.dropouts > 0 ? a.adhesions / a.dropouts : 0,
         size: a.totalActive
       }));
-  }, [data.regional]);
+  }, [data]);
 
   // Métricas da Administradora Selecionada
   const selectedMetrics = useMemo(() => {
     if (!selectedAdminId) return null;
-    const admin = data.administrators.find(a => a.cnpj === selectedAdminId);
+    const admin = data.administrators.find(a => a.cnpj_raiz === selectedAdminId); // use cnpj_raiz
     if (!admin) return null;
 
-    const regionalData = data.regional.filter(r => r.adminName?.trim() === admin.name?.trim());
+    const regionalData = data.quarterly.filter(r => r.cnpj_raiz === admin.cnpj_raiz);
 
-    const totalAdhesions = regionalData.reduce((acc, curr) => acc + (curr.newAdhesionsQuarter || 0), 0);
-    const totalDropouts = regionalData.reduce((acc, curr) => acc + (curr.dropoutNonContemplated || 0), 0);
-    const totalActive = regionalData.reduce((acc, curr) => acc + (curr.totalActive || 0), 0);
-    const totalBid = regionalData.reduce((acc, curr) => acc + (curr.activeContemplatedBid || 0), 0);
-    const totalLottery = regionalData.reduce((acc, curr) => acc + (curr.activeContemplatedLottery || 0), 0);
+    const totalAdhesions = regionalData.reduce((acc, curr) => acc + (curr.trimestre.adesoes || 0), 0);
+    const totalDropouts = regionalData.reduce((acc, curr) => acc + (curr.trimestre.excluidos_contemplados || 0), 0); // Strict
+    const totalActive = regionalData.reduce((acc, curr) => acc + (curr.totais.ativos_total || 0), 0);
+
+    // Contemplation Mix (Lance vs Sorteio) - Available in Totals/Accumulated or Quarter?
+    // Usually stock mix is better for "Profile".
+    const totalBid = regionalData.reduce((acc, curr) => acc + (curr.acumulados.contemplados_lance || 0), 0);
+    const totalLottery = regionalData.reduce((acc, curr) => acc + (curr.acumulados.contemplados_sorteio || 0), 0);
 
     const replacementRatio = totalDropouts > 0 ? totalAdhesions / totalDropouts : 0;
-    
+
     // Score de saúde ponderado
     const scoreChurn = Math.max(0, 100 - ((totalDropouts / (totalActive || 1)) * 400)); // Churn alto penaliza muito
     const scoreReposition = Math.min(100, replacementRatio * 50); // Reposição > 2x é 100
@@ -79,23 +92,23 @@ export const OperationalPerformance: React.FC<Props> = ({ data }) => {
 
     // Dados por Região para Gráfico
     const regionChartData = regionalData.reduce((acc: any[], curr) => {
-      const region = curr.region || 'Outra';
+      const region = curr.uf || 'Outra';
       const existing = acc.find(x => x.region === region);
       if (existing) {
-        existing.adhesions += (curr.newAdhesionsQuarter || 0);
-        existing.dropouts += (curr.dropoutNonContemplated || 0);
+        existing.adhesions += (curr.trimestre.adesoes || 0);
+        existing.dropouts += (curr.trimestre.excluidos_contemplados || 0);
       } else {
-        acc.push({ 
-          region: region, 
-          adhesions: (curr.newAdhesionsQuarter || 0), 
-          dropouts: (curr.dropoutNonContemplated || 0) 
+        acc.push({
+          region: region,
+          adhesions: (curr.trimestre.adesoes || 0),
+          dropouts: (curr.trimestre.excluidos_contemplados || 0)
         });
       }
       return acc;
     }, []);
 
     return {
-      name: admin.name,
+      name: admin.nome_reduzido, // use nome_reduzido
       totalActive,
       replacementRatio,
       churnRate: totalActive > 0 ? (totalDropouts / totalActive) * 100 : 0,
@@ -103,7 +116,7 @@ export const OperationalPerformance: React.FC<Props> = ({ data }) => {
         { name: 'Sorteio', value: totalLottery, color: '#10b981' },
         { name: 'Lance', value: totalBid, color: '#3b82f6' }
       ],
-      regionChartData,
+      regionChartData: regionChartData.sort((a, b) => b.adhesions - a.adhesions).slice(0, 15), // Limit to top 15 regions
       healthScore
     };
   }, [selectedAdminId, data]);
@@ -130,7 +143,7 @@ export const OperationalPerformance: React.FC<Props> = ({ data }) => {
           >
             <option value="">Visão Geral do Mercado (Scatter)</option>
             {validAdmins.map(admin => (
-              <option key={admin.cnpj} value={admin.cnpj}>{admin.name}</option>
+              <option key={admin.cnpj_raiz} value={admin.cnpj_raiz}>{admin.nome_reduzido}</option>
             ))}
           </select>
         </div>
@@ -145,7 +158,7 @@ export const OperationalPerformance: React.FC<Props> = ({ data }) => {
               <p className="text-sm text-slate-500">Comparativo de todas as administradoras importadas.</p>
             </div>
           </div>
-          
+
           <div className="h-[500px] w-full">
             <ResponsiveContainer width="100%" height="100%">
               <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
@@ -153,8 +166,8 @@ export const OperationalPerformance: React.FC<Props> = ({ data }) => {
                 <XAxis type="number" dataKey="churnRate" name="Churn %" unit="%" label={{ value: 'Taxa de Evasão (Churn)', position: 'bottom', offset: 0 }} />
                 <YAxis type="number" dataKey="growthRate" name="Vendas %" unit="%" label={{ value: 'Taxa de Novas Vendas', angle: -90, position: 'left' }} />
                 <ZAxis type="number" dataKey="size" range={[50, 400]} name="Cotas Ativas" />
-                <Tooltip 
-                  cursor={{ strokeDasharray: '3 3' }} 
+                <Tooltip
+                  cursor={{ strokeDasharray: '3 3' }}
                   content={({ active, payload }) => {
                     if (active && payload && payload.length) {
                       const data = payload[0].payload;
@@ -179,8 +192,8 @@ export const OperationalPerformance: React.FC<Props> = ({ data }) => {
             </ResponsiveContainer>
           </div>
           <div className="flex justify-center gap-6 mt-4 text-xs text-slate-500">
-             <div className="flex items-center gap-2"><div className="w-3 h-3 bg-emerald-500 rounded-full opacity-60"></div> Carteira em Expansão (Vendas {'>'} Churn)</div>
-             <div className="flex items-center gap-2"><div className="w-3 h-3 bg-red-500 rounded-full opacity-60"></div> Carteira em Contração (Churn {'>'} Vendas)</div>
+            <div className="flex items-center gap-2"><div className="w-3 h-3 bg-emerald-500 rounded-full opacity-60"></div> Carteira em Expansão (Vendas {'>'} Churn)</div>
+            <div className="flex items-center gap-2"><div className="w-3 h-3 bg-red-500 rounded-full opacity-60"></div> Carteira em Contração (Churn {'>'} Vendas)</div>
           </div>
         </div>
       ) : (
@@ -220,7 +233,7 @@ export const OperationalPerformance: React.FC<Props> = ({ data }) => {
                   <Scale size={14} /> Mix Contemplação
                 </h3>
                 <div className="text-lg font-bold text-blue-600 mt-1">
-                   {((selectedMetrics.contemplationMix[1].value / (selectedMetrics.contemplationMix[0].value + selectedMetrics.contemplationMix[1].value || 1)) * 100).toFixed(0)}% Lance
+                  {((selectedMetrics.contemplationMix[1].value / (selectedMetrics.contemplationMix[0].value + selectedMetrics.contemplationMix[1].value || 1)) * 100).toFixed(0)}% Lance
                 </div>
                 <div className="text-xs text-slate-400 mt-1">vs. Sorteio</div>
               </div>
@@ -234,8 +247,8 @@ export const OperationalPerformance: React.FC<Props> = ({ data }) => {
                     <BarChart data={selectedMetrics.regionChartData} layout="vertical" margin={{ left: 20 }}>
                       <CartesianGrid strokeDasharray="3 3" horizontal={false} />
                       <XAxis type="number" />
-                      <YAxis dataKey="region" type="category" width={100} tick={{fontSize: 12}} />
-                      <Tooltip cursor={{fill: 'transparent'}} />
+                      <YAxis dataKey="region" type="category" width={100} tick={{ fontSize: 12 }} />
+                      <Tooltip cursor={{ fill: 'transparent' }} />
                       <Legend />
                       <Bar dataKey="adhesions" name="Entradas (Vendas)" fill="#10b981" barSize={20} radius={[0, 4, 4, 0]} />
                       <Bar dataKey="dropouts" name="Saídas (Desistências)" fill="#ef4444" barSize={20} radius={[0, 4, 4, 0]} />

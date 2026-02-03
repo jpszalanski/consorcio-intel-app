@@ -13,12 +13,12 @@ interface Props {
 type MetricType = 'quotas' | 'volume' | 'ticket';
 
 const SEGMENT_COLORS: Record<string, string> = {
-  [BacenSegment.IMOVEIS]: '#2563eb', 
-  [BacenSegment.VEICULOS_LEVES]: '#10b981', 
-  [BacenSegment.VEICULOS_PESADOS]: '#f59e0b', 
-  [BacenSegment.MOTOCICLETAS]: '#ef4444', 
-  [BacenSegment.SERVICOS]: '#8b5cf6', 
-  [BacenSegment.OUTROS_BENS]: '#64748b' 
+  [BacenSegment.IMOVEIS]: '#2563eb',
+  [BacenSegment.VEICULOS_LEVES]: '#10b981',
+  [BacenSegment.VEICULOS_PESADOS]: '#f59e0b',
+  [BacenSegment.MOTOCICLETAS]: '#ef4444',
+  [BacenSegment.SERVICOS]: '#8b5cf6',
+  [BacenSegment.OUTROS_BENS]: '#64748b'
 };
 
 export const TrendAnalysis: React.FC<Props> = ({ data }) => {
@@ -31,31 +31,48 @@ export const TrendAnalysis: React.FC<Props> = ({ data }) => {
   // Aggregation Helper: Unify all sources into a timeline
   const pivotData = useMemo(() => {
     // Determine which field to use based on metric type
-    const mapItem = (item: any) => {
-      // Logic for Volume: use valorMedioBem * activeQuotas. If simple segment, fallback to 0 or estimate.
+    const mapItem = (item: any, source: 'detailed' | 'consolidated') => {
       let val = 0;
-      if (metricType === 'volume') {
-        const avgVal = item.valorMedioBem || 0;
-        val = item.activeQuotas || item.cotasAtivas || 0;
-        val = val * avgVal;
-        // Se for segment (sem valorMedio), não contribui para volume (evita distorção)
+      // In new structure:
+      // DetailedGroup: metricas_cotas, caracteristicas
+      // ConsolidatedSeries: metricas_brutas, indicadores_calculados
+
+      if (metricType === 'volume' && source === 'detailed') {
+        const avgVal = item.caracteristicas?.valor_medio_do_bem || 0;
+        // Formula for Active Volume:
+        const active = (item.metricas_cotas?.ativas_em_dia || 0) +
+          (item.metricas_cotas?.contempladas_inadimplentes || 0) +
+          (item.metricas_cotas?.nao_contempladas_inadimplentes || 0);
+        val = active * avgVal;
+      } else if (metricType === 'volume' && source === 'consolidated') {
+        // Consolidated usually doesn't have "Valor Médio do Bem" in spec 3.1 directly exposed for calc?
+        // Actually spec 1.1 doesn't have it. So consolidated segments don't contribute to Volume Trend unless we have it.
+        // We will skip consolidated for Volume unless we find a way.
+        val = 0;
       } else if (metricType === 'quotas') {
-        val = item.activeQuotas || item.cotasAtivas || 0;
+        if (source === 'detailed') {
+          val = (item.metricas_cotas?.ativas_em_dia || 0) +
+            (item.metricas_cotas?.contempladas_inadimplentes || 0) +
+            (item.metricas_cotas?.nao_contempladas_inadimplentes || 0);
+        } else {
+          val = item.indicadores_calculados?.cotas_ativas_total || 0;
+        }
       } else {
         // Ticket Médio
-        val = item.valorMedioBem || 0;
+        if (source === 'detailed') val = item.caracteristicas?.valor_medio_do_bem || 0;
+        else val = 0; // Not available in consolidated
       }
-      return { 
-        period: item.period, 
-        segment: item.segment, 
-        value: val 
+
+      return {
+        period: item.data_base,
+        segment: String(item.codigo_segmento),
+        value: val
       };
     };
 
     const allPoints = [
-      ...data.segments.map(s => mapItem(s)),
-      ...data.realEstateGroups.map(s => mapItem(s)),
-      ...data.movableGroups.map(s => mapItem(s))
+      ...data.consolidated.map(s => mapItem(s, 'consolidated')),
+      ...data.detailedGroups.map(s => mapItem(s, 'detailed'))
     ].filter(p => p.value > 0); // Remove zeros to clean chart
 
     if (allPoints.length === 0) return [];
@@ -69,19 +86,19 @@ export const TrendAnalysis: React.FC<Props> = ({ data }) => {
       }
       const entry = groupedByPeriod.get(key);
       const segKey = item.segment || 'Outros';
-      
+
       // Accumulate or Average
       if (metricType === 'ticket') {
-         // Weighted average accumulation logic is hard here without count, sticking to max or simple avg for trend visual
-         // Better: Keep accumulated sum and count, then divide at end. 
-         // For simplicity in this trend view: we just take average of observed values for that segment in that month
-         const currentSum = entry[`${segKey}_sum`] || 0;
-         const currentCount = entry[`${segKey}_count`] || 0;
-         entry[`${segKey}_sum`] = currentSum + item.value;
-         entry[`${segKey}_count`] = currentCount + 1;
-         entry[segKey] = entry[`${segKey}_sum`] / entry[`${segKey}_count`];
+        // Weighted average accumulation logic is hard here without count, sticking to max or simple avg for trend visual
+        // Better: Keep accumulated sum and count, then divide at end. 
+        // For simplicity in this trend view: we just take average of observed values for that segment in that month
+        const currentSum = entry[`${segKey}_sum`] || 0;
+        const currentCount = entry[`${segKey}_count`] || 0;
+        entry[`${segKey}_sum`] = currentSum + item.value;
+        entry[`${segKey}_count`] = currentCount + 1;
+        entry[segKey] = entry[`${segKey}_sum`] / entry[`${segKey}_count`];
       } else {
-         entry[segKey] = (entry[segKey] || 0) + item.value;
+        entry[segKey] = (entry[segKey] || 0) + item.value;
       }
     });
 
@@ -89,11 +106,10 @@ export const TrendAnalysis: React.FC<Props> = ({ data }) => {
   }, [data, metricType]);
 
   const availableSegments = useMemo(() => {
-     const segs = new Set<string>();
-     data.segments.forEach(s => segs.add(s.segment));
-     data.realEstateGroups.forEach(s => segs.add(s.segment));
-     data.movableGroups.forEach(s => segs.add(s.segment));
-     return Array.from(segs);
+    const segs = new Set<string>();
+    data.consolidated.forEach(s => segs.add(String(s.codigo_segmento)));
+    data.detailedGroups.forEach(s => segs.add(String(s.codigo_segmento)));
+    return Array.from(segs);
   }, [data]);
 
   const filteredData = useMemo(() => {
@@ -131,84 +147,84 @@ export const TrendAnalysis: React.FC<Props> = ({ data }) => {
           <p className="text-slate-500">Evolução histórica por segmento e indicador.</p>
         </div>
         <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto items-center">
-           <div className="flex bg-white rounded-lg p-1 border border-slate-200 shadow-sm">
-              <button 
-                onClick={() => setMetricType('volume')}
-                className={`p-2 rounded-md transition-all ${metricType === 'volume' ? 'bg-slate-100 text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
-                title="Volume Financeiro"
-              >
-                <DollarSign size={18} />
-              </button>
-              <button 
-                onClick={() => setMetricType('quotas')}
-                className={`p-2 rounded-md transition-all ${metricType === 'quotas' ? 'bg-slate-100 text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
-                title="Cotas Ativas"
-              >
-                <Users size={18} />
-              </button>
-              <button 
-                onClick={() => setMetricType('ticket')}
-                className={`p-2 rounded-md transition-all ${metricType === 'ticket' ? 'bg-slate-100 text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
-                title="Ticket Médio"
-              >
-                <BarChart2 size={18} />
-              </button>
-           </div>
+          <div className="flex bg-white rounded-lg p-1 border border-slate-200 shadow-sm">
+            <button
+              onClick={() => setMetricType('volume')}
+              className={`p-2 rounded-md transition-all ${metricType === 'volume' ? 'bg-slate-100 text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
+              title="Volume Financeiro"
+            >
+              <DollarSign size={18} />
+            </button>
+            <button
+              onClick={() => setMetricType('quotas')}
+              className={`p-2 rounded-md transition-all ${metricType === 'quotas' ? 'bg-slate-100 text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
+              title="Cotas Ativas"
+            >
+              <Users size={18} />
+            </button>
+            <button
+              onClick={() => setMetricType('ticket')}
+              className={`p-2 rounded-md transition-all ${metricType === 'ticket' ? 'bg-slate-100 text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
+              title="Ticket Médio"
+            >
+              <BarChart2 size={18} />
+            </button>
+          </div>
 
-           <PeriodSelector value={period} onChange={setPeriod} options={['1q', '1y', 'all']} />
-           
-           <div className="relative">
-             <Filter size={16} className="absolute left-3 top-3 text-slate-400" />
-             <select 
-               className="bg-white border border-slate-300 text-slate-700 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block pl-10 p-2.5 shadow-sm min-w-[200px]"
-               value={selectedSegment}
-               onChange={(e) => {
-                 setSelectedSegment(e.target.value);
-                 setPrediction(null);
-               }}
-             >
-               <option value="">Selecione para IA...</option>
-               {availableSegments.map((s) => (
-                 <option key={s} value={s}>{s}</option>
-               ))}
-             </select>
-           </div>
+          <PeriodSelector value={period} onChange={setPeriod} options={['1q', '1y', 'all']} />
+
+          <div className="relative">
+            <Filter size={16} className="absolute left-3 top-3 text-slate-400" />
+            <select
+              className="bg-white border border-slate-300 text-slate-700 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block pl-10 p-2.5 shadow-sm min-w-[200px]"
+              value={selectedSegment}
+              onChange={(e) => {
+                setSelectedSegment(e.target.value);
+                setPrediction(null);
+              }}
+            >
+              <option value="">Selecione para IA...</option>
+              {availableSegments.map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 
       <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
         <h3 className="font-semibold text-slate-800 mb-6 flex items-center gap-2">
-           {metricType === 'volume' && 'Volume de Crédito (Saldo R$)'}
-           {metricType === 'quotas' && 'Estoque de Cotas Ativas (Qtd)'}
-           {metricType === 'ticket' && 'Ticket Médio por Grupo (R$)'}
+          {metricType === 'volume' && 'Volume de Crédito (Saldo R$)'}
+          {metricType === 'quotas' && 'Estoque de Cotas Ativas (Qtd)'}
+          {metricType === 'ticket' && 'Ticket Médio por Grupo (R$)'}
         </h3>
-        
+
         <div className="h-96 w-full">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={filteredData}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-              <XAxis dataKey="period" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12}} dy={10} />
-              <YAxis 
-                axisLine={false} 
-                tickLine={false} 
-                tick={{fill: '#94a3b8', fontSize: 12}} 
-                tickFormatter={(val) => metricType !== 'quotas' ? `${(val/1000).toFixed(0)}k` : val}
+              <XAxis dataKey="period" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 12 }} dy={10} />
+              <YAxis
+                axisLine={false}
+                tickLine={false}
+                tick={{ fill: '#94a3b8', fontSize: 12 }}
+                tickFormatter={(val) => metricType !== 'quotas' ? `${(val / 1000).toFixed(0)}k` : val}
               />
-              <Tooltip 
-                contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'}} 
+              <Tooltip
+                contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
                 formatter={(val: number) => metricType !== 'quotas' ? `R$ ${val.toLocaleString()}` : val.toLocaleString()}
               />
               <Legend />
               {availableSegments.map((seg, idx) => (
-                 <Line 
-                   key={seg} 
-                   name={seg} 
-                   type="monotone" 
-                   dataKey={seg} 
-                   stroke={SEGMENT_COLORS[seg] || '#94a3b8'} 
-                   strokeWidth={3} 
-                   dot={{r: 4}} 
-                 />
+                <Line
+                  key={seg}
+                  name={seg}
+                  type="monotone"
+                  dataKey={seg}
+                  stroke={SEGMENT_COLORS[seg] || '#94a3b8'}
+                  strokeWidth={3}
+                  dot={{ r: 4 }}
+                />
               ))}
             </LineChart>
           </ResponsiveContainer>
@@ -227,11 +243,11 @@ export const TrendAnalysis: React.FC<Props> = ({ data }) => {
         </div>
 
         {!selectedSegment ? (
-           <p className="text-slate-500 text-sm">Selecione um segmento no filtro acima para habilitar a predição.</p>
+          <p className="text-slate-500 text-sm">Selecione um segmento no filtro acima para habilitar a predição.</p>
         ) : !prediction ? (
           <div className="flex flex-col items-start gap-4">
             <p className="text-slate-300 text-sm max-w-2xl">
-              Gerar projeção para <span className="font-semibold text-white">{selectedSegment}</span>. 
+              Gerar projeção para <span className="font-semibold text-white">{selectedSegment}</span>.
               O modelo processará {aiContextData.length} pontos de dados históricos ({metricType}).
             </p>
             <button
@@ -261,7 +277,7 @@ export const TrendAnalysis: React.FC<Props> = ({ data }) => {
                 {prediction.rationale}
               </p>
             </div>
-            <button 
+            <button
               onClick={() => setPrediction(null)}
               className="text-xs text-slate-500 hover:text-white underline mt-2 transition-colors"
             >
