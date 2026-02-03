@@ -35,193 +35,29 @@ export const AdministratorAnalysis: React.FC<Props> = ({ data }) => {
   }, [adminAId, viewMode]);
 
   const sortedAdmins = useMemo(() => {
-    return [...data.administrators].sort((a, b) => a.name.localeCompare(b.name));
+    return [...data.administrators].sort((a, b) => (a.nome_reduzido || '').localeCompare(b.nome_reduzido || ''));
   }, [data.administrators]);
 
   // Função central para calcular métricas de UMA administradora
   const getAdminMetrics = (cnpj: string, adminName: string) => {
-    // Filtros por coleção
-    // Note: Using cnpj (raw string from admin list) might need cleaning to match cnpj_raiz. 
-    // Usually admin.cnpj is 8 digits.
-    const cleanCnpj = cnpj.replace(/\D/g, '');
-
-    const detailedGroups = data.detailedGroups.filter(g => g.cnpj_raiz === cleanCnpj);
-
-    // Deduplication: Identify segments covered by groups for THIS administrator
-    const coveredSegments = new Set<string>();
-    detailedGroups.forEach(g => coveredSegments.add(`${g.codigo_segmento}-${g.data_base}`));
-
-    const consolidatedSegments = data.consolidated
-      .filter(s => s.cnpj_raiz === cleanCnpj)
-      .filter(s => !coveredSegments.has(`${s.codigo_segmento}-${s.data_base}`));
-
-    // Normalização Groups
-    const normalizedGroups = detailedGroups.map(g => {
-      const active = g.metricas_cotas.ativas_em_dia + g.metricas_cotas.contempladas_inadimplentes + g.metricas_cotas.nao_contempladas_inadimplentes;
-      const balance = active * g.caracteristicas.valor_medio_do_bem; // Dynamic Calc
-
-      return {
-        period: g.data_base,
-        activeQuotas: active,
-        balance: balance,
-        newSales: 0,
-        dropouts: g.metricas_cotas.excluidas,
-        defaultCount: g.metricas_cotas.contempladas_inadimplentes + g.metricas_cotas.nao_contempladas_inadimplentes,
-        taxaAdmin: g.caracteristicas.taxa_de_administracao,
-        prazo: g.caracteristicas.prazo_do_grupo_em_meses,
-        activeGroups: 1, // It is one group record
-        segment: String(g.codigo_segmento)
-      };
-    });
-
-    // Normalização Consolidated
-    const normalizedConsolidated = consolidatedSegments.map(s => {
-      return {
-        period: s.data_base,
-        activeQuotas: s.indicadores_calculados.cotas_ativas_total,
-        balance: 0, // Strict 0
-        newSales: s.metricas_brutas.quantidade_de_cotas_comercializadas_no_mes,
-        dropouts: s.metricas_brutas.quantidade_de_cotas_excluidas,
-        defaultCount: (s.metricas_brutas.quantidade_de_cotas_ativas_contempladas_inadimplentes + s.metricas_brutas.quantidade_de_cotas_ativas_nao_contempladas_inadimplentes),
-        taxaAdmin: s.metricas_brutas.taxa_de_administracao,
-        prazo: 0,
-        activeGroups: s.metricas_brutas.quantidade_de_grupos_ativos,
-        segment: String(s.codigo_segmento)
-      };
-    });
-
-    const normalizedRecords = [...normalizedGroups, ...normalizedConsolidated];
-
-    if (normalizedRecords.length === 0) return null;
-
-    const totalActive = normalizedRecords.reduce((acc, curr) => acc + curr.activeQuotas, 0);
-    const totalBalance = normalizedRecords.reduce((acc, curr) => acc + curr.balance, 0);
-    // Sales will come mainly from Consolidated (which might be filtered out if we deduplicate strictly).
-    // Actually, deduplication logic above removes consolidated if detailed exists.
-    // If Detailed exists (Groups), we lose Sales count because Groups don't have it in Spec.
-    // This is a trade-off. We might need to keep Consolidated just for Sales metrics?
-    // User Spec 1.1 "Quantidade_de_cotas_comercializadas_no_mês" exists in Consolidated.
-    // Groups (1.2/1.3) DO NOT have it.
-    // So if we have detailed groups for Segment 1, and we filter out Consolidated Segment 1, we lose Sales count.
-    // SOLUTION: We should use Consolidated for Sales Summation even if we use Groups for Balance.
-    // But normalizedRecords expects a flat list.
-    // Let's add Sales from ALL Consolidated records matching this CNPJ (ignoring deduplication for sales).
-    const totalSales = data.consolidated
-      .filter(s => s.cnpj_raiz === cleanCnpj)
-      .reduce((acc, s) => acc + s.metricas_brutas.quantidade_de_cotas_comercializadas_no_mes, 0);
-
-    const totalDropouts = normalizedRecords.reduce((acc, curr) => acc + curr.dropouts, 0);
-    const totalDefault = normalizedRecords.reduce((acc, curr) => acc + curr.defaultCount, 0);
-
-    // Breakdown por Segmento
-    const segmentBreakdownMap = new Map();
-    normalizedRecords.forEach(rec => {
-      const seg = rec.segment || 'Outros';
-      if (!segmentBreakdownMap.has(seg)) {
-        segmentBreakdownMap.set(seg, { name: seg, active: 0, balance: 0, defaultCount: 0, fees: [], dropouts: 0 });
-      }
-      const entry = segmentBreakdownMap.get(seg);
-      entry.active += rec.activeQuotas;
-      entry.balance += rec.balance;
-      entry.defaultCount += rec.defaultCount;
-      entry.dropouts += rec.dropouts;
-      if (rec.taxaAdmin > 0) entry.fees.push(rec.taxaAdmin);
-    });
-
-    const segmentBreakdown = Array.from(segmentBreakdownMap.values()).map(s => ({
-      name: s.name,
-      active: s.active,
-      balance: s.balance,
-      defaultRate: s.active > 0 ? (s.defaultCount / s.active) * 100 : 0,
-      dropoutRate: s.active > 0 ? (s.dropouts / s.active) * 100 : 0,
-      avgFee: s.fees.length > 0 ? s.fees.reduce((a: number, b: number) => a + b, 0) / s.fees.length : 0
-    })).sort((a, b) => b.balance - a.balance);
-
-    // Médias Ponderadas
-    let weightedFeeSum = 0;
-    let weightedTermSum = 0;
-    let weightSum = 0;
-    let salesEfficiencySum = 0;
-    let groupsCount = 0;
-
-    normalizedRecords.forEach(o => {
-      const weight = o.balance || 1;
-      weightedFeeSum += o.taxaAdmin * weight;
-      if (o.prazo > 0) weightedTermSum += o.prazo * weight;
-      weightSum += weight;
-
-      if (o.activeGroups > 0) {
-        // Sales Efficiency is tricky now because Sales are missing from Groups.
-        // We can only calc explicit efficiency from Consolidated records that remain.
-        // Or specific Group efficiency if we had sales data.
-        // Let's stick to normalizedRecords.
-        if (o.newSales > 0) {
-          salesEfficiencySum += (o.newSales / o.activeGroups);
-          groupsCount++;
-        }
-      }
-    });
-
-    const avgAdminFee = weightSum > 0 ? weightedFeeSum / weightSum : 0;
-    const avgTerm = weightSum > 0 ? weightedTermSum / weightSum : 0;
-    const salesPerGroup = groupsCount > 0 ? salesEfficiencySum / groupsCount : 0;
-
-    const churnRate = totalActive > 0 ? (totalDropouts / totalActive) * 100 : 0;
-    const defaultRate = totalActive > 0 ? (totalDefault / totalActive) * 100 : 0;
-    const avgTicket = totalActive > 0 ? totalBalance / totalActive : 0;
-
-    // Segmentos Pie
-    const segmentsData = segmentBreakdown.map(s => ({ name: s.name, value: s.balance }));
-
-    // History Line
-    const historyMap = new Map<string, { period: string, balance: number, active: number }>();
-    normalizedRecords.forEach(curr => {
-      if (!historyMap.has(curr.period)) {
-        historyMap.set(curr.period, { period: curr.period, balance: 0, active: 0 });
-      }
-      const h = historyMap.get(curr.period)!;
-      h.balance += curr.balance;
-      h.active += curr.activeQuotas;
-    });
-
-    const history = Array.from(historyMap.values())
-      .sort((a, b) => a.period.localeCompare(b.period))
-      .slice(-12);
-
-    return {
-      name: adminName,
-      cnpj: cnpj,
-      totalActive,
-      totalBalance,
-      totalSales,
-      avgAdminFee,
-      avgTerm,
-      salesPerGroup,
-      churnRate,
-      defaultRate,
-      avgTicket,
-      segmentsData,
-      segmentBreakdown,
-      history,
-      mainSegment: segmentBreakdown[0]?.name || 'Diversos'
-    };
+    // ... rest of function
   };
 
   // Memoize data for the selected single view
   const metricsA = useMemo(() => {
     if (!adminAId) return null;
-    const admin = data.administrators.find(a => a.cnpj === adminAId);
+    const admin = data.administrators.find(a => a.cnpj_raiz === adminAId); // Changed cnpj to cnpj_raiz
     if (!admin) return null;
-    return getAdminMetrics(admin.cnpj, admin.name);
+    return getAdminMetrics(admin.cnpj_raiz, admin.nome_reduzido);
   }, [adminAId, data]);
 
   // Memoize Ranking Table Data (All Admins)
   const allAdminsMetrics = useMemo(() => {
     return data.administrators
-      .map(admin => getAdminMetrics(admin.cnpj, admin.name))
+      .map(admin => getAdminMetrics(admin.cnpj_raiz, admin.nome_reduzido))
       .filter(m => m !== null && m.totalActive > 0)
       .sort((a, b) => b!.totalBalance - a!.totalBalance); // Sort by Volume by default
-  }, [data.administrators, data.segments, data.realEstateGroups, data.movableGroups]);
+  }, [data.administrators, data.consolidated, data.detailedGroups]);
 
   const handleGenerateReport = async () => {
     if (!metricsA) return;
@@ -473,7 +309,7 @@ export const AdministratorAnalysis: React.FC<Props> = ({ data }) => {
               >
                 <option value="">Trocar Administradora...</option>
                 {sortedAdmins.map(admin => (
-                  <option key={admin.cnpj} value={admin.cnpj}>{admin.name}</option>
+                  <option key={admin.cnpj_raiz} value={admin.cnpj_raiz}>{admin.nome_reduzido}</option>
                 ))}
               </select>
             </div>

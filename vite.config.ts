@@ -10,8 +10,5 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
-  define: {
-    // Securely expose only the API_KEY to the client side
-    'process.env.API_KEY': JSON.stringify(process.env.API_KEY)
-  }
+
 });

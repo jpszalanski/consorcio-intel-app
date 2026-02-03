@@ -13,8 +13,8 @@ export const generateMarketInsight = async (
 ): Promise<MarketInsightResult> => {
   try {
     // Inicialização do cliente Gemini seguindo as diretrizes oficiais de segurança e SDK
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    
+    const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
+
     const prompt = `
       Você é um especialista em análise regulatória e mercadológica do Banco Central do Brasil (BACEN) para o setor de consórcios.
       Analise os dados fornecidos considerando as Circulares (ex: Circular 3.679/14) e os documentos padrões (2080, 4010).
@@ -61,7 +61,7 @@ export const predictDemand = async (
 ): Promise<{ prediction: string; rationale: string }> => {
   try {
     // Inicialização do cliente Gemini seguindo as diretrizes oficiais de segurança e SDK
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
 
     const prompt = `
       Analise a série histórica do segmento oficial BACEN: ${segment}.
@@ -89,13 +89,13 @@ export const predictDemand = async (
 
     const text = response.text;
     if (!text) throw new Error("Resposta vazia");
-    
+
     return JSON.parse(text);
   } catch (error) {
     console.error("Erro na predição:", error);
-    return { 
-      prediction: "Tendência de Estabilidade", 
-      rationale: "Não foi possível realizar a predição avançada por limitações técnicas temporárias." 
+    return {
+      prediction: "Tendência de Estabilidade",
+      rationale: "Não foi possível realizar a predição avançada por limitações técnicas temporárias."
     };
   }
 };

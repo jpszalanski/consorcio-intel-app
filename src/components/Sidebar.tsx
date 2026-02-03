@@ -25,17 +25,16 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isMob
     <>
       {/* Mobile Backdrop */}
       {isMobileOpen && (
-        <div 
+        <div
           className="fixed inset-0 bg-slate-900/50 z-20 lg:hidden"
           onClick={() => setIsMobileOpen(false)}
         />
       )}
 
       {/* Sidebar */}
-      <aside 
-        className={`fixed top-0 left-0 z-30 h-full w-64 bg-slate-900 text-white transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:block ${
-          isMobileOpen ? 'translate-x-0' : '-translate-x-full'
-        }`}
+      <aside
+        className={`fixed top-0 left-0 z-30 h-full w-64 bg-slate-900 text-white transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:block ${isMobileOpen ? 'translate-x-0' : '-translate-x-full'
+          }`}
       >
         <div className="flex h-16 items-center justify-between px-6 bg-slate-950 border-b border-slate-800/50">
           <span className="text-xl font-bold tracking-tight text-blue-400">Consórcio<span className="text-white">Intel</span></span>
@@ -54,11 +53,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isMob
                   setActiveTab(item.id);
                   setIsMobileOpen(false);
                 }}
-                className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-all ${
-                  activeTab === item.id
+                className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-all ${activeTab === item.id
                     ? 'bg-blue-600 text-white shadow-xl shadow-blue-900/50 scale-105'
                     : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'
-                }`}
+                  }`}
               >
                 <Icon size={18} />
                 {item.label}
@@ -72,13 +70,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isMob
             <div>
               <h4 className="text-[10px] font-bold uppercase text-slate-500 mb-2 tracking-widest">Status da API</h4>
               <div className="flex items-center gap-2">
-                <div className={`h-2 w-2 rounded-full ${process.env.API_KEY ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
+                <div className={`h-2 w-2 rounded-full ${import.meta.env.VITE_GEMINI_API_KEY ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
                 <span className="text-xs font-medium text-slate-300">
-                  {process.env.API_KEY ? 'Gemini 3 Pro' : 'Chave Offline'}
+                  {import.meta.env.VITE_GEMINI_API_KEY ? 'Gemini 3 Pro' : 'Chave Offline'}
                 </span>
               </div>
             </div>
-            
+
             <div className="pt-3 border-t border-slate-700/50">
               <h4 className="text-[10px] font-bold uppercase text-slate-500 mb-2 tracking-widest">Banco de Dados</h4>
               <div className="flex items-center gap-2">

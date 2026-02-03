@@ -12,10 +12,13 @@ import { Menu, Loader2 } from 'lucide-react';
 import { dataStore } from './services/dataStore';
 import { AppDataStore } from './types';
 
+import { ErrorBoundary } from 'react-error-boundary';
+import { ErrorFallback } from './components/common/ErrorBoundary';
+
 export default function App() {
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeTab, setActiveTab] = useState('import'); // Default to Import to unblock user
   const [isMobileOpen, setIsMobileOpen] = useState(false);
-  
+
   // Estado Global de Dados (Cache simples)
   const [globalData, setGlobalData] = useState<AppDataStore | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -24,7 +27,7 @@ export default function App() {
   // Carregamento inicial de dados
   const fetchData = async () => {
     setIsLoading(true);
-    
+
     // Verifica conexão primeiro
     const isConnected = await dataStore.checkConnection();
     setDbStatus(isConnected);
@@ -54,39 +57,45 @@ export default function App() {
 
     // Se não houver dados globais (exceto na importação), evita crash
     if (!globalData && activeTab !== 'import') {
-       return <DataImport />; 
+      return <DataImport />;
     }
 
-    switch (activeTab) {
-      case 'dashboard':
-        return <DashboardOverview data={globalData!} />;
-      case 'admin_analysis':
-        return <AdministratorAnalysis data={globalData!} />;
-      case 'operational':
-        return <OperationalPerformance data={globalData!} />;
-      case 'competitive':
-        return <CompetitiveAnalysis data={globalData!} />;
-      case 'trends':
-        return <TrendAnalysis data={globalData!} />;
-      case 'regional':
-        return <RegionalAnalysis data={globalData!} />;
-      case 'import':
-        return <DataImport />;
-      default:
-        return (
-          <div className="flex flex-col items-center justify-center h-[60vh] text-slate-400">
-            <Menu size={48} className="text-slate-300 mb-4" />
-            <p className="text-lg font-semibold">Módulo em desenvolvimento</p>
-          </div>
-        );
-    }
+    return (
+      <ErrorBoundary FallbackComponent={ErrorFallback}>
+        {(() => {
+          switch (activeTab) {
+            case 'dashboard':
+              return <DashboardOverview data={globalData!} />;
+            case 'admin_analysis':
+              return <AdministratorAnalysis data={globalData!} />;
+            case 'operational':
+              return <OperationalPerformance data={globalData!} />;
+            case 'competitive':
+              return <CompetitiveAnalysis data={globalData!} />;
+            case 'trends':
+              return <TrendAnalysis data={globalData!} />;
+            case 'regional':
+              return <RegionalAnalysis data={globalData!} />;
+            case 'import':
+              return <DataImport />;
+            default:
+              return (
+                <div className="flex flex-col items-center justify-center h-[60vh] text-slate-400">
+                  <Menu size={48} className="text-slate-300 mb-4" />
+                  <p className="text-lg font-semibold">Módulo em desenvolvimento</p>
+                </div>
+              );
+          }
+        })()}
+      </ErrorBoundary>
+    );
   };
 
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden font-sans">
-      <Sidebar 
-        activeTab={activeTab} 
-        setActiveTab={setActiveTab} 
+      <Sidebar
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
         isMobileOpen={isMobileOpen}
         setIsMobileOpen={setIsMobileOpen}
         dbStatus={dbStatus}
@@ -95,7 +104,7 @@ export default function App() {
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Mobile Header */}
         <header className="lg:hidden flex items-center h-16 px-6 bg-white border-b border-slate-200">
-          <button 
+          <button
             onClick={() => setIsMobileOpen(true)}
             className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg"
           >

@@ -85,7 +85,7 @@ const parseBrazilNum = (val: any): number => {
 // --- STRICT MAPPERS (Phase 2) ---
 
 // 1.1 ARQUIVO: AAAAMMSegmentos_Consolidados.csv
-const mapConsolidatedSeries = (row: any): ConsolidatedSeries | null => {
+export const mapConsolidatedSeries = (row: any): ConsolidatedSeries | null => {
   const cnpj = String(findValue(row, ['CNPJ_da_Administradora']) || '').replace(/\D/g, '');
   if (!cnpj) return null;
 
@@ -161,7 +161,7 @@ const mapConsolidatedSeries = (row: any): ConsolidatedSeries | null => {
 };
 
 // 1.2 & 1.3 ARQUIVOS DE GRUPOS
-const mapDetailedGroup = (row: any, type: 'imoveis' | 'moveis'): DetailedGroup | null => {
+export const mapDetailedGroup = (row: any, type: 'imoveis' | 'moveis'): DetailedGroup | null => {
   const cnpj = String(findValue(row, ['CNPJ_da_Administradora']) || '').replace(/\D/g, '');
   const grupo = String(findValue(row, ['Código_do_grupo', 'Codigo']) || '');
   const database = String(findValue(row, ['Data_base']) || '');
@@ -228,7 +228,7 @@ const mapDetailedGroup = (row: any, type: 'imoveis' | 'moveis'): DetailedGroup |
 };
 
 // 1.4 ARQUIVO UF
-const mapQuarterlyData = (row: any): QuarterlyData | null => {
+export const mapQuarterlyData = (row: any): QuarterlyData | null => {
   const cnpj = String(findValue(row, ['CNPJ_da_Administradora']) || '').replace(/\D/g, '');
   const uf = String(findValue(row, ['Unidade_da_Federação_do_consorciado', 'UF']) || '').toUpperCase();
   const database = String(findValue(row, ['Data_base']) || '');
@@ -453,10 +453,85 @@ export const dataStore = {
     return `Processados: ${consolidated.length} Séries, ${detailed.length} Grupos, ${quarterly.length} UF.`;
   },
 
+  processAndUploadDirectly: async (files: { type: string, data: any[], fileName: string }[]): Promise<string> => {
+    const user = await ensureAuth();
+    if (!user) throw new Error("Auth required");
+
+    let consolidated: ConsolidatedSeries[] = [];
+    let detailed: DetailedGroup[] = [];
+    let quarterly: QuarterlyData[] = [];
+    let adminsFound = new Map<string, Administrator>();
+
+    // Phase 1: In-Memory Processing (Parsing)
+    files.forEach(file => {
+      file.data.forEach(row => {
+        const cnpj = String(findValue(row, ['CNPJ_da_Administradora']) || '').replace(/\D/g, '');
+        const name = findValue(row, ['Nome_da_Administradora']);
+
+        if (cnpj && name && !adminsFound.has(cnpj)) {
+          adminsFound.set(cnpj, {
+            cnpj_raiz: cnpj,
+            nome_reduzido: String(name).trim(),
+            segmentos_atuantes: [],
+            primeiro_registro: '',
+            ultimo_registro: '',
+            total_grupos_historico: 0
+          });
+        }
+
+        switch (file.type) {
+          case 'segments':
+            const seg = mapConsolidatedSeries(row);
+            if (seg) consolidated.push(seg);
+            break;
+          case 'real_estate':
+            const gImp = mapDetailedGroup(row, 'imoveis');
+            if (gImp) detailed.push(gImp);
+            break;
+          case 'movables':
+            const gMov = mapDetailedGroup(row, 'moveis');
+            if (gMov) detailed.push(gMov);
+            break;
+          case 'regional_uf':
+            const uf = mapQuarterlyData(row);
+            if (uf) quarterly.push(uf);
+            break;
+        }
+      });
+    });
+
+    // Phase 2: Parallel writes (Direct to Final Collections)
+    const promises = [];
+    if (consolidated.length > 0) promises.push(dataStore.batchWrite(consolidated, COL_CONSOLIDATED, (i) => i.id || null));
+    if (detailed.length > 0) promises.push(dataStore.batchWrite(detailed, COL_DETAILED_GROUPS, (i) => i.id || null));
+    if (quarterly.length > 0) promises.push(dataStore.batchWrite(quarterly, COL_QUARTERLY, (i) => i.id || null));
+    if (adminsFound.size > 0) promises.push(dataStore.batchWrite(Array.from(adminsFound.values()), COL_ADMINS, (item) => item.cnpj_raiz));
+
+    // Log Files
+    const logs = files.map(f => ({
+      fileName: f.fileName,
+      importDate: new Date().toISOString(),
+      type: f.type,
+      recordCount: f.data.length
+    }));
+    promises.push(dataStore.batchWrite(logs, COL_FILES, (item) => `${item.fileName}_${Date.now()}`));
+
+    await Promise.all(promises);
+
+    window.dispatchEvent(new Event('dataUpdate'));
+    return `Importação Turbo Concluída: ${consolidated.length} Séries, ${detailed.length} Grupos.`;
+  },
+
   batchWrite: async (data: any[], collectionName: string, idGenerator?: (item: any) => string | null) => {
-    const CHUNK_SIZE = 250;
+    const CHUNK_SIZE = 350; // Increased chunk size
+    const MAX_CONCURRENT = 10; // Parallelism limit
+
+    const chunks: any[][] = [];
     for (let i = 0; i < data.length; i += CHUNK_SIZE) {
-      const chunk = data.slice(i, i + CHUNK_SIZE);
+      chunks.push(data.slice(i, i + CHUNK_SIZE));
+    }
+
+    const processChunk = async (chunk: any[]) => {
       let retries = 3;
       while (retries > 0) {
         try {
@@ -468,15 +543,20 @@ export const dataStore = {
             batch.set(ref, { ...cleanItem, _updatedAt: Timestamp.now() }, { merge: true });
           });
           await batch.commit();
-          await sleep(200);
-          break;
+          return;
         } catch (error) {
           console.error(`Error batch write ${collectionName}`, error);
-          await sleep(1000);
+          await sleep(1000 * (4 - retries)); // Backoff
           retries--;
           if (retries === 0) throw error;
         }
       }
+    };
+
+    // Execute in throttled batches
+    for (let i = 0; i < chunks.length; i += MAX_CONCURRENT) {
+      const batchGroup = chunks.slice(i, i + MAX_CONCURRENT);
+      await Promise.all(batchGroup.map(c => processChunk(c)));
     }
   }
 };

@@ -15,7 +15,7 @@ interface ProcessedFile {
 }
 
 const normalizeKey = (str: string) => {
-  if(!str) return '';
+  if (!str) return '';
   return str
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, "")
@@ -41,7 +41,7 @@ export const DataImport: React.FC = () => {
     if (name.includes('veiculos')) return 'movables';
     if (name.includes('segmentos')) return 'segments';
     if (name.includes('dadosporuf') || h.includes('uf')) return 'regional_uf';
-    
+
     // Fallback: Column based
     if (h.some(x => x.includes('valormedio') || x.includes('vlbem'))) return 'movables';
     if (h.includes('codigodosegmento') && !h.some(x => x.includes('valormedio'))) return 'segments';
@@ -52,22 +52,22 @@ export const DataImport: React.FC = () => {
   const readFileContent = (file: File): Promise<ProcessedFile> => {
     return new Promise((resolve) => {
       const reader = new FileReader();
-      reader.readAsText(file, 'windows-1252'); 
+      reader.readAsText(file, 'windows-1252');
 
       reader.onload = async (e) => {
         try {
           const text = e.target?.result as string;
           const lines = text.split('\n');
           if (lines.length < 2) {
-             resolve({ file, type: null, data: [], status: 'error', errorMsg: 'Arquivo vazio' });
-             return;
+            resolve({ file, type: null, data: [], status: 'error', errorMsg: 'Arquivo vazio' });
+            return;
           }
 
           const firstLine = lines[0];
           const separator = firstLine.includes(';') ? ';' : ',';
           const headers = firstLine.split(separator).map(h => h.trim().replace(/^"|"$/g, ''));
           const detectedType = detectLayout(headers, file.name);
-          
+
           const parsedData = lines.slice(1)
             .filter(line => line.trim() !== '')
             .map(line => {
@@ -106,40 +106,27 @@ export const DataImport: React.FC = () => {
 
     try {
       if (clearBeforeImport) {
-         setStatusMessage("Limpando banco de dados...");
-         await dataStore.clearAllData();
+        setStatusMessage("Limpando banco de dados...");
+        await dataStore.clearAllData();
       }
 
-      // Step 1: Upload to Staging (Raw)
-      setCurrentStep('uploading');
-      setStatusMessage("Enviando tabelas temporárias para o servidor...");
-      
-      const batchId = `BATCH_${Date.now()}`;
-      
-      for (const file of readyFiles) {
-         await dataStore.uploadToStaging(batchId, file.type!, file.data);
-      }
-      
-      // Save log
-      const logs = readyFiles.map(f => ({
-        fileName: f.file.name,
-        importDate: new Date().toISOString(),
-        type: f.type!,
-        recordCount: f.data.length
-      }));
-      await dataStore.batchWrite(logs, 'imported_files_log', (item) => `${item.fileName}_${Date.now()}`);
-
-      // Step 2: Trigger Consolidation
+      // Step: Turbo Direct Upload
       setCurrentStep('processing');
-      setStatusMessage("Consolidando e otimizando dados (ETL)... Isso pode levar um momento.");
-      
-      const resultMsg = await dataStore.processStagingData(batchId);
+      setStatusMessage("Processando e Importando dados (Turbo Mode)...");
+
+      const filesToProcess = readyFiles.map(f => ({
+        type: f.type!,
+        data: f.data,
+        fileName: f.file.name
+      }));
+
+      const resultMsg = await dataStore.processAndUploadDirectly(filesToProcess);
 
       alert(`Importação Concluída!\n${resultMsg}`);
       setProcessedQueue([]);
       setStatusMessage("");
       setCurrentStep('idle');
-      
+
     } catch (e: any) {
       console.error(e);
       alert(`Erro durante a importação: ${e.message}`);
@@ -157,40 +144,38 @@ export const DataImport: React.FC = () => {
         </p>
       </div>
 
-      <div 
+      <div
         onClick={() => setClearBeforeImport(!clearBeforeImport)}
-        className={`border rounded-xl p-4 flex items-start gap-4 cursor-pointer transition-all select-none ${
-          clearBeforeImport 
-            ? 'bg-amber-50 border-amber-200' 
+        className={`border rounded-xl p-4 flex items-start gap-4 cursor-pointer transition-all select-none ${clearBeforeImport
+            ? 'bg-amber-50 border-amber-200'
             : 'bg-white border-slate-200 hover:border-slate-300'
-        }`}
+          }`}
       >
         <div className={`mt-1 transition-colors ${clearBeforeImport ? 'text-amber-600' : 'text-slate-400'}`}>
           {clearBeforeImport ? <AlertTriangle size={24} /> : <Database size={24} />}
         </div>
-        
+
         <div className="flex-1">
           <div className="flex items-center justify-between">
             <h3 className={`font-bold text-sm ${clearBeforeImport ? 'text-amber-900' : 'text-slate-700'}`}>
               Limpeza Prévia (Reset Completo)
             </h3>
-            
+
             <div className={`w-11 h-6 rounded-full relative transition-colors ${clearBeforeImport ? 'bg-amber-500' : 'bg-slate-300'}`}>
               <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm transition-transform duration-200 ${clearBeforeImport ? 'translate-x-6' : 'translate-x-1'}`} />
             </div>
           </div>
           <p className={`text-sm mt-1 leading-relaxed ${clearBeforeImport ? 'text-amber-800' : 'text-slate-500'}`}>
-            {clearBeforeImport 
-              ? "Ativado: Apaga TUDO antes da carga." 
+            {clearBeforeImport
+              ? "Ativado: Apaga TUDO antes da carga."
               : "Desativado: Adiciona novos dados ao banco existente."}
           </p>
         </div>
       </div>
 
-      <div 
-        className={`relative border-2 border-dashed rounded-2xl p-12 transition-all cursor-pointer flex flex-col items-center justify-center gap-4 group ${
-          dragActive ? 'border-blue-500 bg-blue-50/50' : 'border-slate-300 hover:border-blue-400 hover:bg-slate-50'
-        }`}
+      <div
+        className={`relative border-2 border-dashed rounded-2xl p-12 transition-all cursor-pointer flex flex-col items-center justify-center gap-4 group ${dragActive ? 'border-blue-500 bg-blue-50/50' : 'border-slate-300 hover:border-blue-400 hover:bg-slate-50'
+          }`}
         onDragEnter={() => setDragActive(true)}
         onDragLeave={() => setDragActive(false)}
         onDrop={(e) => {
@@ -244,9 +229,9 @@ export const DataImport: React.FC = () => {
               className="bg-slate-900 text-white px-8 py-3 rounded-xl font-bold shadow-lg hover:bg-slate-800 disabled:opacity-50 flex items-center gap-3"
             >
               {currentStep !== 'idle' ? (
-                 <><Loader2 className="animate-spin" size={20} /> {statusMessage || 'Processando...'}</>
+                <><Loader2 className="animate-spin" size={20} /> {statusMessage || 'Processando...'}</>
               ) : (
-                 <><ArrowRight size={20} /> Iniciar Carga e Tratamento</>
+                <><ArrowRight size={20} /> Iniciar Carga e Tratamento</>
               )}
             </button>
           </div>

@@ -1,21 +1,21 @@
 
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged, User } from 'firebase/auth';
-import { 
-  initializeFirestore, 
-  persistentLocalCache, 
-  persistentMultipleTabManager 
+import {
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager
 } from 'firebase/firestore';
 
 // Configuração do Firebase Consórcio Intel
 const firebaseConfig = {
-  apiKey: "AIzaSyDb_17CJm3Ajbmwnt4q-Sc6KKimuOa3asA",
-  authDomain: "consorcio-intel-app.firebaseapp.com",
-  projectId: "consorcio-intel-app",
-  storageBucket: "consorcio-intel-app.firebasestorage.app",
-  messagingSenderId: "654186633996",
-  appId: "1:654186633996:web:1feddb11c5238414844729",
-  measurementId: "G-VQ5JTT3JQN"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
 };
 
 // Inicializa o Firebase App
