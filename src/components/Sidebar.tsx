@@ -18,7 +18,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isMob
     { id: 'competitive', label: 'Posicionamento Competitivo', icon: PieChart },
     { id: 'trends', label: 'Tendências de Mercado', icon: TrendingUp },
     { id: 'regional', label: 'Análise Regional', icon: Map },
-    { id: 'regional', label: 'Análise Regional', icon: Map },
     { id: 'import', label: 'Importar Dados', icon: Database },
     { id: 'file_control', label: 'Controle Arquivos', icon: FileText },
   ];
