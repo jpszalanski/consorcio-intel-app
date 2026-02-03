@@ -2,6 +2,8 @@
 import React, { useState, useCallback } from 'react';
 import { UploadCloud, FileSpreadsheet, CheckCircle2, AlertCircle, Loader2, HardDrive } from 'lucide-react';
 import { uploadFileToStorage } from '../../services/storageService';
+import { db } from '../../services/firebase';
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 
 interface FileUploadStatus {
     file: File;
@@ -61,6 +63,18 @@ export const BigQueryImport: React.FC = () => {
             try {
                 const { storagePath } = await uploadFileToStorage(fileStatus.file, (progress) => {
                     setFiles(prev => prev.map(f => f.file === fileStatus.file ? { ...f, progress } : f));
+                });
+
+                // Register in Control Center (Status: UPLOADED/IMPORTADO)
+                // ID = filename without extension
+                const safeId = fileStatus.file.name.replace(/\.[^/.]+$/, "");
+                await setDoc(doc(db, 'file_imports_control', safeId), {
+                    fileName: fileStatus.file.name,
+                    storagePath: storagePath,
+                    fileType: 'UNKNOWN', // Backend will detect
+                    processedAt: serverTimestamp(), // Upload Time
+                    status: 'UPLOADED',
+                    rowsProcessed: 0
                 });
 
                 // Update status to completed
