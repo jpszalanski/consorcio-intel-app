@@ -33,6 +33,8 @@ export const generateMarketInsight = async (
       3. Oportunidades ou riscos regionais baseados nos dados.
 
       Use o Google Search para validar o cenário macroeconômico atual (Selic, IPCA).
+      
+      IMPORTANTE: Não confunda o "Mercado de Consórcios" (dados internos) com o "Mercado Financeiro Geral". Trate Selic e IPCA apenas como fatores externos de influência, não como métricas do setor de consórcios em si.
 
       Retorne APENAS um JSON válido seguindo estritamente este formato para renderização:
       {
