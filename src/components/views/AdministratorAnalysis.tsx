@@ -40,7 +40,148 @@ export const AdministratorAnalysis: React.FC<Props> = ({ data }) => {
 
   // Função central para calcular métricas de UMA administradora
   const getAdminMetrics = (cnpj: string, adminName: string) => {
-    // ... rest of function
+    // 1. Filtrar Grupos Detalhados (Fonte Financeira e Operacional)
+    const groups = data.detailedGroups.filter(g => g.cnpj_raiz === cnpj);
+
+    // Se não houver grupos detalhados, tenta fallback (apenas metadados ou consolidado básico se necessário)
+    if (groups.length === 0) {
+      // Retornar objeto vazio ou nulo? 
+      // Se retornar nulo, ele é filtrado do ranking. 
+      // Vamos retornar nulo para não poluir o ranking com fantasmas.
+      return null;
+    }
+
+    // Calculadoras
+    let totalActive = 0;
+    let totalBalance = 0;
+
+    const segMap = new Map<string, {
+      code: string;
+      active: number;
+      balance: number;
+      defaults: number;
+      feesSum: number; // Sum of fees * active for weighted
+      termSum: number; // Sum of term * active for weighted
+      count: number;
+      dropouts: number;
+    }>();
+
+    // Map para Histórico (Agrupado por Data Base)
+    const historyMap = new Map<string, number>();
+
+    groups.forEach(g => {
+      // Métricas básicas do grupo
+      // Fórmula Ativas: Em dia + Contempladas Inad + Não Contempladas Inad
+      const active = (g.metricas_cotas?.ativas_em_dia || 0) +
+        (g.metricas_cotas?.contempladas_inadimplentes || 0) +
+        (g.metricas_cotas?.nao_contempladas_inadimplentes || 0);
+
+      const avgVal = g.caracteristicas?.valor_medio_do_bem || 0;
+      const vol = active * avgVal;
+
+      // Histórico
+      const db = g.data_base;
+      historyMap.set(db, (historyMap.get(db) || 0) + vol);
+
+      // Apenas processar métricas do período MAIS RECENTE para o Report "Atual"
+      // Como data.detailedGroups pode ter histórico, precisamos filtrar para o "Snapshot Atual".
+      // O ideal seria que 'groups' já viesse filtrado pelo período mais recente ou que o AppDataStore já separasse?
+      // DataStore carrega TUDO. Vamos assumir que para "Totais" pegamos o último período de cada grupo ÚNICO?
+      // Ou assumimos que o Dashboard mostra o "Estado Atual" baseado na data_base mais recente encontrada no dataset?
+    });
+
+    // Encontrar Data Base mais recente no dataset desta ADM para o Snapshot
+    const dates = Array.from(historyMap.keys()).sort();
+    const latestDate = dates[dates.length - 1];
+
+    // Filtrar apenas grupos da última data para métricas pontuais
+    const currentGroups = groups.filter(g => g.data_base === latestDate);
+
+    let currentTotalActive = 0;
+    let currentTotalBalance = 0;
+    let currentDefaults = 0;
+    let currentFeesWeighted = 0;
+    let currentTermsWeighted = 0;
+    let currentSales = 0; // Proxies might be weak here
+
+    currentGroups.forEach(g => {
+      const active = (g.metricas_cotas?.ativas_em_dia || 0) +
+        (g.metricas_cotas?.contempladas_inadimplentes || 0) +
+        (g.metricas_cotas?.nao_contempladas_inadimplentes || 0);
+      const avgVal = g.caracteristicas?.valor_medio_do_bem || 0;
+      const vol = active * avgVal;
+
+      currentTotalActive += active;
+      currentTotalBalance += vol;
+
+      const defs = (g.metricas_cotas?.contempladas_inadimplentes || 0) +
+        (g.metricas_cotas?.nao_contempladas_inadimplentes || 0);
+      currentDefaults += defs;
+
+      currentFeesWeighted += (g.caracteristicas?.taxa_de_administracao || 0) * active;
+      currentTermsWeighted += (g.caracteristicas?.prazo_do_grupo_em_meses || 0) * active;
+      currentSales += (g.metricas_cotas?.contempladas_no_mes || 0); // Using contemplations as proxy for activity if sales not explicit
+
+      // Segments
+      const segCode = String(g.codigo_segmento || '99');
+      if (!segMap.has(segCode)) {
+        segMap.set(segCode, { code: segCode, active: 0, balance: 0, defaults: 0, feesSum: 0, termSum: 0, count: 0, dropouts: 0 });
+      }
+      const s = segMap.get(segCode)!;
+      s.active += active;
+      s.balance += vol;
+      s.defaults += defs;
+      s.feesSum += (g.caracteristicas?.taxa_de_administracao || 0); // Simple avg for segment details table (or weighted?) Table says 'Taxa Adm'. Weighted is better.
+      s.count++;
+      s.dropouts += (g.metricas_cotas?.excluidas || 0);
+    });
+
+    const avgAdminFee = currentTotalActive > 0 ? currentFeesWeighted / currentTotalActive : 0;
+    const avgTerm = currentTotalActive > 0 ? currentTermsWeighted / currentTotalActive : 0;
+    const defaultRate = currentTotalActive > 0 ? (currentDefaults / currentTotalActive) * 100 : 0;
+    const avgTicket = currentTotalActive > 0 ? currentTotalBalance / currentTotalActive : 0;
+    const salesPerGroup = currentGroups.length > 0 ? currentSales / currentGroups.length : 0;
+
+    // Helper Nomes Segmentos
+    const getSegName = (c: string) => {
+      if (c === '1') return 'Imóveis';
+      if (c === '2') return 'Pesados';
+      if (c === '3') return 'Leves';
+      if (c === '4') return 'Motos';
+      if (c === '6') return 'Serviços';
+      return 'Outros';
+    };
+
+    // Prepare Charts Data
+    const segmentBreakdown = Array.from(segMap.values()).map(s => ({
+      name: getSegName(s.code),
+      balance: s.balance,
+      active: s.active,
+      avgFee: s.count > 0 ? s.feesSum / s.count : 0, // Keeping simple average for table column per group count logic
+      defaultRate: s.active > 0 ? (s.defaults / s.active) * 100 : 0,
+      dropoutRate: s.active > 0 ? (s.dropouts / s.active) * 100 : 0
+    })).sort((a, b) => b.balance - a.balance);
+
+    const segmentsData = segmentBreakdown.map(s => ({ name: s.name, value: s.balance }));
+    const mainSegment = segmentsData.length > 0 ? segmentsData[0].name : 'Geral';
+
+    const history = dates.map(d => ({ period: d, balance: historyMap.get(d) || 0 }));
+
+    return {
+      cnpj,
+      name: adminName,
+      totalBalance: currentTotalBalance,
+      totalActive: currentTotalActive,
+      avgTicket,
+      defaultRate,
+      salesPerGroup,
+      avgAdminFee,
+      avgTerm,
+      mainSegment,
+      segmentsData,
+      segmentBreakdown,
+      history
+    };
   };
 
   // Memoize data for the selected single view

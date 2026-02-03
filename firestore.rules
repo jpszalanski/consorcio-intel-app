@@ -1,6 +1,8 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Permite acesso total (leitura e escrita) para fins de desenvolvimento/demo.
+    // O usuário solicitou explicitamente acesso anônimo sem restrições.
     match /{document=**} {
       allow read, write: if true;
     }
