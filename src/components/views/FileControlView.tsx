@@ -2,12 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { db } from '../../services/firebase';
-import { uploadFileToStorage } from '../../services/storageService';
-import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { IMPORT_DEFINITIONS, getMonthOptions, getYearOptions } from '../../types/uploadTypes';
+import { IMPORT_DEFINITIONS, getYearOptions } from '../../types/uploadTypes';
 import {
     FileText, RefreshCw, Trash2, CheckCircle2, AlertCircle, Loader2,
-    Calendar, UploadCloud, ChevronRight, HardDrive
+    Calendar, Filter, X, Info
 } from 'lucide-react';
 
 interface FileControlRecord {
@@ -18,35 +16,38 @@ interface FileControlRecord {
     processedAt: any;
     status: 'PENDING' | 'UPLOADED' | 'PROCESSING' | 'SUCCESS' | 'ERROR';
     rowsProcessed: number;
-    referenceDate?: string;
+    referenceDate?: string; // Format YYYY-MM
     errorDetails?: string;
 }
 
-export const FileControlView: React.FC = () => {
-    // 1. Competence State
-    const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
-    const [selectedMonth, setSelectedMonth] = useState(() => {
-        const m = new Date().getMonth(); // 0-11. current month.
-        // Usually data is from previous month, but let's default to current for now
-        return (m + 1).toString().padStart(2, '0');
-    });
+const MONTHS = [
+    { num: '01', abbr: 'Jan' }, { num: '02', abbr: 'Fev' }, { num: '03', abbr: 'Mar' },
+    { num: '04', abbr: 'Abr' }, { num: '05', abbr: 'Mai' }, { num: '06', abbr: 'Jun' },
+    { num: '07', abbr: 'Jul' }, { num: '08', abbr: 'Ago' }, { num: '09', abbr: 'Set' },
+    { num: '10', abbr: 'Out' }, { num: '11', abbr: 'Nov' }, { num: '12', abbr: 'Dez' },
+];
 
-    // 2. Data State
+export const FileControlView: React.FC = () => {
+    // 1. State
+    const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
     const [records, setRecords] = useState<FileControlRecord[]>([]);
     const [loading, setLoading] = useState(false);
+
+    // 2. Selection Modal State
+    const [selectedFile, setSelectedFile] = useState<FileControlRecord | null>(null);
     const [processingId, setProcessingId] = useState<string | null>(null);
-    const [uploadingType, setUploadingType] = useState<string | null>(null);
 
-    // 3. Computed Competence String (YYYY-MM)
-    const competenceKey = `${selectedYear}-${selectedMonth}`;
-
-    // 4. Load Data for Competence
+    // 3. Load Data for Year
     useEffect(() => {
         setLoading(true);
-        // Note: referenceDate in Firestore is "YYYY-MM"
+        // Query string range for the year: '2025-01' to '2025-12'
+        const startKey = `${selectedYear}-01`;
+        const endKey = `${selectedYear}-12`;
+
         const q = query(
             collection(db, 'file_imports_control'),
-            where('referenceDate', '==', competenceKey)
+            where('referenceDate', '>=', startKey),
+            where('referenceDate', '<=', endKey)
         );
 
         const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -55,17 +56,19 @@ export const FileControlView: React.FC = () => {
             setLoading(false);
         });
         return () => unsubscribe();
-    }, [competenceKey]);
+    }, [selectedYear]);
 
-    // 5. Actions
-    const handleReprocess = async (file: FileControlRecord) => {
-        if (!confirm(`Reprocessar ${file.fileName}?`)) return;
-        setProcessingId(file.id);
+    // 4. Actions
+    const handleReprocess = async () => {
+        if (!selectedFile) return;
+        if (!confirm(`Reprocessar ${selectedFile.fileName}?`)) return;
+        setProcessingId(selectedFile.id);
         try {
             const functions = getFunctions();
             const reprocess = httpsCallable(functions, 'reprocessFile');
-            await reprocess({ storagePath: file.storagePath });
+            await reprocess({ storagePath: selectedFile.storagePath });
             alert('Reprocessamento iniciado!');
+            setSelectedFile(null); // Close modal
         } catch (error: any) {
             alert('Erro: ' + error.message);
         } finally {
@@ -73,13 +76,15 @@ export const FileControlView: React.FC = () => {
         }
     };
 
-    const handleDelete = async (file: FileControlRecord) => {
-        if (!confirm(`Excluir arquivo ${file.fileName}?`)) return;
-        setProcessingId(file.id);
+    const handleDelete = async () => {
+        if (!selectedFile) return;
+        if (!confirm(`Excluir arquivo ${selectedFile.fileName}?`)) return;
+        setProcessingId(selectedFile.id);
         try {
             const functions = getFunctions();
             const del = httpsCallable(functions, 'deleteFile');
-            await del({ fileId: file.id, storagePath: file.storagePath });
+            await del({ fileId: selectedFile.id, storagePath: selectedFile.storagePath });
+            setSelectedFile(null); // Close modal
         } catch (error: any) {
             alert('Erro: ' + error.message);
         } finally {
@@ -87,183 +92,155 @@ export const FileControlView: React.FC = () => {
         }
     };
 
-    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, typeId: string) => {
-        if (!e.target.files?.length) return;
-        const file = e.target.files[0];
-        setUploadingType(typeId);
-
-        try {
-            // Upload to Storage
-            const { storagePath } = await uploadFileToStorage(file, (p) => { });
-
-            // Register 'UPLOADED' record immediately
-            // Must manually force the referenceDate to match the selected competence 
-            // to ensure it shows up in this view, even if filename differs partially
-            const safeId = file.name.replace(/\.[^/.]+$/, "");
-
-            await setDoc(doc(db, 'file_imports_control', safeId), {
-                fileName: file.name,
-                storagePath: storagePath,
-                fileType: typeId, // Force the type based on the row clicked
-                referenceDate: competenceKey, // Force the date based on selector
-                processedAt: serverTimestamp(),
-                status: 'UPLOADED',
-                rowsProcessed: 0
-            });
-
-        } catch (error: any) {
-            alert('Erro no upload: ' + error.message);
-        } finally {
-            setUploadingType(null);
-            // Reset input
-            e.target.value = '';
-        }
+    // Helper to find record
+    const findRecord = (typeId: string, month: string) => {
+        const key = `${selectedYear}-${month}`;
+        // Prioritize SUCCESS/PROCESSING over others if duplicates exist (though id prevents dups usually)
+        return records.find(r => r.fileType === typeId && r.referenceDate === key);
     };
 
     return (
-        <div className="max-w-6xl mx-auto space-y-8 animate-fade-in pb-20">
-            {/* Header & Governance Selector */}
+        <div className="max-w-full mx-auto space-y-8 animate-fade-in pb-20 px-4 md:px-8">
+            {/* Header */}
             <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
                 <div>
                     <h2 className="text-3xl font-bold text-slate-900 flex items-center gap-3">
-                        <HardDrive className="text-blue-600" />
-                        Governança de Dados
+                        <Calendar className="text-blue-600" />
+                        Mapa de Competências
                     </h2>
-                    <p className="text-slate-500 mt-2">Fechamento Mensal e Controle de Qualidade.</p>
+                    <p className="text-slate-500 mt-2">Visão anual da integridade dos dados.</p>
                 </div>
 
-                <div className="bg-white p-4 rounded-xl shadow-lg border border-slate-200 flex items-center gap-4">
-                    <div className="flex items-center gap-2 text-slate-600 font-bold border-r border-slate-200 pr-4">
-                        <Calendar size={20} />
-                        COMPETÊNCIA:
-                    </div>
-                    <select
-                        value={selectedMonth}
-                        onChange={e => setSelectedMonth(e.target.value)}
-                        className="bg-slate-50 border-none font-bold text-slate-800 focus:ring-0 rounded-lg"
-                    >
-                        {getMonthOptions().map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
-                    </select>
-                    <span className="text-slate-300">/</span>
+                <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-200">
                     <select
                         value={selectedYear}
                         onChange={e => setSelectedYear(e.target.value)}
-                        className="bg-slate-50 border-none font-bold text-slate-800 focus:ring-0 rounded-lg"
+                        className="bg-transparent border-none font-bold text-xl text-slate-800 focus:ring-0 cursor-pointer"
                     >
                         {getYearOptions().map(y => <option key={y} value={y}>{y}</option>)}
                     </select>
                 </div>
             </div>
 
-            {/* Matrix Table */}
-            <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
-                <div className="bg-slate-50 px-6 py-4 border-b border-slate-200 flex justify-between items-center">
-                    <h3 className="font-bold text-slate-700">Arquivos Obrigatórios (Fechamento {competenceKey})</h3>
-                    <div className="text-xs font-bold px-3 py-1 bg-blue-100 text-blue-700 rounded-full">
-                        {records.filter(r => r.status === 'SUCCESS').length} / {IMPORT_DEFINITIONS.length} Concluídos
-                    </div>
-                </div>
-
-                <div className="divide-y divide-slate-100">
-                    {IMPORT_DEFINITIONS.map((def) => {
-                        // Find if we have a file for this Type
-                        const file = records.find(r => r.fileType === def.id);
-                        const isUploading = uploadingType === def.id;
-
-                        return (
-                            <div key={def.id} className="p-6 flex items-start md:items-center gap-6 group hover:bg-slate-50 transition-colors">
-                                {/* Definition Info */}
-                                <div className="w-1/3 min-w-[250px]">
-                                    <h4 className="font-bold text-slate-800">{def.label}</h4>
-                                    <p className="text-xs text-slate-500 mt-1">{def.description}</p>
-                                    <div className="mt-2 flex items-center gap-2">
-                                        <span className="text-[10px] font-bold uppercase tracking-wider bg-slate-100 text-slate-500 px-2 py-0.5 rounded">
-                                            {def.tableId}
-                                        </span>
-                                        {def.required && <span className="text-[10px] text-red-500 font-bold">*Obrigatório</span>}
+            {/* Grid Container */}
+            <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                    <thead>
+                        <tr className="bg-slate-50 border-b border-slate-200 text-xs uppercase tracking-wider text-slate-500 font-bold text-center">
+                            <th className="p-4 text-left min-w-[200px] border-r border-slate-100 bg-slate-50 sticky left-0 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
+                                Tipo de Arquivo
+                            </th>
+                            {MONTHS.map(m => (
+                                <th key={m.num} className="p-3 w-24">
+                                    {m.abbr}
+                                </th>
+                            ))}
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                        {IMPORT_DEFINITIONS.map(def => (
+                            <tr key={def.id} className="hover:bg-slate-50/50 transition-colors">
+                                {/* Type Label */}
+                                <td className="p-4 border-r border-slate-100 font-bold text-slate-700 bg-white sticky left-0 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
+                                    <div className="flex flex-col">
+                                        <span>{def.label}</span>
+                                        <span className="text-[10px] text-slate-400 font-normal uppercase">{def.tableId}</span>
                                     </div>
+                                </td>
+
+                                {/* Month Cells */}
+                                {MONTHS.map(m => {
+                                    const record = findRecord(def.id, m.num);
+                                    return (
+                                        <td key={m.num} className="p-2 text-center">
+                                            {record ? (
+                                                <button
+                                                    onClick={() => setSelectedFile(record)}
+                                                    className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all mx-auto shadow-sm hover:shadow-md hover:scale-105 active:scale-95 ${record.status === 'SUCCESS' ? 'bg-green-100 text-green-600' :
+                                                            record.status === 'ERROR' ? 'bg-red-100 text-red-600' :
+                                                                'bg-blue-100 text-blue-600 animate-pulse'
+                                                        }`}
+                                                >
+                                                    {record.status === 'SUCCESS' && <CheckCircle2 size={20} />}
+                                                    {record.status === 'ERROR' && <AlertCircle size={20} />}
+                                                    {(record.status === 'PROCESSING' || record.status === 'UPLOADED') && <Loader2 size={20} className="animate-spin" />}
+                                                </button>
+                                            ) : (
+                                                <div className="w-2 h-2 bg-slate-200 rounded-full mx-auto" />
+                                            )}
+                                        </td>
+                                    );
+                                })}
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+
+            {/* Loading Indicator */}
+            {loading && (
+                <div className="text-center py-4 text-slate-400 flex items-center justify-center gap-2">
+                    <Loader2 className="animate-spin" size={20} /> Carregando mapa...
+                </div>
+            )}
+
+            {/* Detail Modal */}
+            {selectedFile && (
+                <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
+                    <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden">
+                        <div className="p-6 border-b border-slate-100 flex justify-between items-start">
+                            <div>
+                                <h3 className="text-lg font-bold text-slate-900">{selectedFile.fileName}</h3>
+                                <p className="text-slate-500 text-sm mt-1">
+                                    Competência: {selectedFile.referenceDate}
+                                </p>
+                            </div>
+                            <button onClick={() => setSelectedFile(null)} className="text-slate-400 hover:text-slate-700">
+                                <X size={24} />
+                            </button>
+                        </div>
+
+                        <div className="p-6 space-y-4">
+                            <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg">
+                                <div className={`p-2 rounded-full ${selectedFile.status === 'SUCCESS' ? 'bg-green-100 text-green-600' :
+                                        selectedFile.status === 'ERROR' ? 'bg-red-100 text-red-600' :
+                                            'bg-blue-100 text-blue-600'
+                                    }`}>
+                                    {selectedFile.status === 'SUCCESS' && <CheckCircle2 size={20} />}
+                                    {selectedFile.status === 'ERROR' && <AlertCircle size={20} />}
+                                    {(selectedFile.status === 'PROCESSING' || selectedFile.status === 'UPLOADED') && <Loader2 size={20} className="animate-spin" />}
                                 </div>
-
-                                {/* Status & File Info */}
-                                <div className="flex-1 border-l border-slate-100 pl-6">
-                                    {!file ? (
-                                        // Empty State (Pending)
-                                        <div className="flex items-center gap-4">
-                                            <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-400">
-                                                <AlertCircle size={20} />
-                                            </div>
-                                            <div>
-                                                <p className="font-bold text-slate-400">Pendente</p>
-                                                <p className="text-xs text-slate-400">Nenhum arquivo enviado para esta competência.</p>
-                                            </div>
-                                        </div>
-                                    ) : (
-                                        // Filled State
-                                        <div className="flex items-center gap-4">
-                                            {/* Icon */}
-                                            <div className="shrink-0">
-                                                {file.status === 'SUCCESS' && <div className="bg-green-100 p-2 rounded-full"><CheckCircle2 className="text-green-600" size={20} /></div>}
-                                                {(file.status === 'PROCESSING' || file.status === 'UPLOADED') && <div className="bg-blue-100 p-2 rounded-full"><Loader2 className="text-blue-600 animate-spin" size={20} /></div>}
-                                                {file.status === 'ERROR' && <div className="bg-red-100 p-2 rounded-full"><AlertCircle className="text-red-600" size={20} /></div>}
-                                            </div>
-
-                                            <div className="min-w-0">
-                                                <p className="font-bold text-slate-700 truncate max-w-[300px]" title={file.fileName}>
-                                                    {file.fileName}
-                                                </p>
-                                                <div className="flex items-center gap-3 text-xs text-slate-500 mt-0.5">
-                                                    <span>{(new Date(file.processedAt?.seconds * 1000)).toLocaleString()}</span>
-                                                    {file.status === 'SUCCESS' && <span className="text-green-600 font-bold">{file.rowsProcessed} linhas</span>}
-                                                    {file.status === 'ERROR' && <span className="text-red-600 font-bold">{file.errorDetails}</span>}
-                                                </div>
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-
-                                {/* Actions */}
-                                <div className="shrink-0 flex items-center gap-2">
-                                    {/* Upload Button (if missing or error) */}
-                                    {(!file || file.status === 'ERROR') && (
-                                        <label className={`cursor-pointer bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 shadow-lg shadow-blue-200 transition-all active:scale-95 ${isUploading ? 'opacity-70 pointer-events-none' : ''}`}>
-                                            {isUploading ? <Loader2 className="animate-spin" size={16} /> : <UploadCloud size={16} />}
-                                            {isUploading ? 'Enviando...' : 'Enviar Arquivo'}
-                                            <input
-                                                type="file"
-                                                accept=".csv,.xlsx"
-                                                className="hidden"
-                                                onChange={(e) => handleFileUpload(e, def.id)}
-                                            />
-                                        </label>
-                                    )}
-
-                                    {/* Management Buttons (if exists) */}
-                                    {file && (
-                                        <>
-                                            <button
-                                                onClick={() => handleReprocess(file)}
-                                                disabled={processingId === file.id || file.status === 'PROCESSING' || file.status === 'UPLOADED'}
-                                                className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg disabled:opacity-50"
-                                                title="Reprocessar"
-                                            >
-                                                <RefreshCw size={18} />
-                                            </button>
-                                            <button
-                                                onClick={() => handleDelete(file)}
-                                                disabled={processingId === file.id}
-                                                className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg disabled:opacity-50"
-                                                title="Excluir"
-                                            >
-                                                <Trash2 size={18} />
-                                            </button>
-                                        </>
-                                    )}
+                                <div>
+                                    <p className="font-bold text-slate-700">Status: {selectedFile.status}</p>
+                                    {selectedFile.status === 'SUCCESS' && <p className="text-xs text-slate-500">{selectedFile.rowsProcessed} linhas processadas</p>}
+                                    {selectedFile.status === 'ERROR' && <p className="text-xs text-red-500">{selectedFile.errorDetails}</p>}
                                 </div>
                             </div>
-                        );
-                    })}
+
+                            <div className="text-xs text-slate-400 text-center">
+                                ID: {selectedFile.id}
+                            </div>
+                        </div>
+
+                        <div className="p-6 pt-0 flex gap-3">
+                            <button
+                                onClick={handleReprocess}
+                                disabled={processingId !== null}
+                                className="flex-1 py-3 bg-blue-50 text-blue-700 font-bold rounded-xl hover:bg-blue-100 transition-colors flex items-center justify-center gap-2"
+                            >
+                                <RefreshCw size={18} /> Reprocessar
+                            </button>
+                            <button
+                                onClick={handleDelete}
+                                disabled={processingId !== null}
+                                className="flex-1 py-3 bg-red-50 text-red-700 font-bold rounded-xl hover:bg-red-100 transition-colors flex items-center justify-center gap-2"
+                            >
+                                <Trash2 size={18} /> Excluir
+                            </button>
+                        </div>
+                    </div>
                 </div>
-            </div>
+            )}
         </div>
     );
 };
