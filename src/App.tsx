@@ -8,6 +8,7 @@ import { CompetitiveAnalysis } from './components/views/CompetitiveAnalysis';
 import { TrendAnalysis } from './components/views/TrendAnalysis';
 import { RegionalAnalysis } from './components/views/RegionalAnalysis';
 import { DataImport } from './components/views/DataImport';
+import { FileControlView } from './components/views/FileControlView';
 import { Menu, Loader2 } from 'lucide-react';
 import { dataStore } from './services/dataStore';
 import { AppDataStore } from './types';
@@ -78,6 +79,8 @@ export default function App() {
               return <RegionalAnalysis data={globalData!} />;
             case 'import':
               return <DataImport />;
+            case 'file_control':
+              return <FileControlView />;
             default:
               return (
                 <div className="flex flex-col items-center justify-center h-[60vh] text-slate-400">

@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { LayoutDashboard, TrendingUp, Map, PieChart, Briefcase, Activity, Menu, Database, Building2, Wifi, WifiOff } from 'lucide-react';
+import { LayoutDashboard, TrendingUp, Map, PieChart, Briefcase, Activity, Menu, Database, Building2, Wifi, WifiOff, FileText } from 'lucide-react';
 
 interface SidebarProps {
   activeTab: string;
@@ -18,7 +18,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isMob
     { id: 'competitive', label: 'Posicionamento Competitivo', icon: PieChart },
     { id: 'trends', label: 'Tendências de Mercado', icon: TrendingUp },
     { id: 'regional', label: 'Análise Regional', icon: Map },
+    { id: 'regional', label: 'Análise Regional', icon: Map },
     { id: 'import', label: 'Importar Dados', icon: Database },
+    { id: 'file_control', label: 'Controle Arquivos', icon: FileText },
   ];
 
   return (
@@ -54,8 +56,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isMob
                   setIsMobileOpen(false);
                 }}
                 className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-all ${activeTab === item.id
-                    ? 'bg-blue-600 text-white shadow-xl shadow-blue-900/50 scale-105'
-                    : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'
+                  ? 'bg-blue-600 text-white shadow-xl shadow-blue-900/50 scale-105'
+                  : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'
                   }`}
               >
                 <Icon size={18} />
