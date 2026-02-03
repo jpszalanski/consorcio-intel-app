@@ -13,6 +13,28 @@ interface FileUploadStatus {
     path?: string;
 }
 
+// Helper to extract metadata from filename
+const parseFileName = (fileName: string) => {
+    const name = fileName.toLowerCase();
+
+    // Type Detection
+    let fileType = 'UNKNOWN';
+    if (name.includes('segmentos')) fileType = 'segments';
+    else if (name.includes('imoveis')) fileType = 'real_estate';
+    else if (name.includes('moveis')) fileType = 'moveis';
+    else if (name.includes('dadosporuf')) fileType = 'regional_uf';
+
+    // Date Detection (YYYYMM or YYYY-MM)
+    // Matches 202301, 2023-01 at start or following underscore
+    const dateMatch = name.match(/(?:^|_)(\d{4})[-]?(\d{2})(?:_|$)/);
+    let referenceDate = null;
+    if (dateMatch) {
+        referenceDate = `${dateMatch[1]}-${dateMatch[2]}`; // YYYY-MM
+    }
+
+    return { fileType, referenceDate };
+};
+
 export const BigQueryImport: React.FC = () => {
     const [files, setFiles] = useState<FileUploadStatus[]>([]);
     const [isDragging, setIsDragging] = useState(false);
@@ -65,13 +87,16 @@ export const BigQueryImport: React.FC = () => {
                     setFiles(prev => prev.map(f => f.file === fileStatus.file ? { ...f, progress } : f));
                 });
 
-                // Register in Control Center (Status: UPLOADED/IMPORTADO)
+                // Register in Control Center with Parsed Metadata
                 // ID = filename without extension
                 const safeId = fileStatus.file.name.replace(/\.[^/.]+$/, "");
+                const { fileType, referenceDate } = parseFileName(fileStatus.file.name);
+
                 await setDoc(doc(db, 'file_imports_control', safeId), {
                     fileName: fileStatus.file.name,
                     storagePath: storagePath,
-                    fileType: 'UNKNOWN', // Backend will detect
+                    fileType: fileType,
+                    referenceDate: referenceDate || 'Pendente',
                     processedAt: serverTimestamp(), // Upload Time
                     status: 'UPLOADED',
                     rowsProcessed: 0
