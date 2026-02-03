@@ -2,41 +2,58 @@
 import { GoogleGenAI } from "@google/genai";
 import { BacenSegment } from "../types";
 
-export interface MarketInsightResult {
-  text: string;
+export interface AIAnalysisResult {
+  summary: string;
+  points: {
+    title: string;
+    content: string;
+    type: 'positive' | 'negative' | 'neutral' | 'info';
+  }[];
+  recommendation: string;
   sources?: { uri: string; title: string }[];
 }
 
 export const generateMarketInsight = async (
   context: string,
   data: any
-): Promise<MarketInsightResult> => {
+): Promise<AIAnalysisResult> => {
   try {
-    // Inicialização do cliente Gemini seguindo as diretrizes oficiais de segurança e SDK
     const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
 
     const prompt = `
-      Você é um especialista em análise regulatória e mercadológica do Banco Central do Brasil (BACEN) para o setor de consórcios.
-      Analise os dados fornecidos considerando as Circulares (ex: Circular 3.679/14) e os documentos padrões (2080, 4010).
-
+      Você é um especialista em análise regulatória e mercadológica do Consórcio.
+      Analise os dados fornecidos.
+      
       Contexto: ${context}
-      Dados do App (JSON): ${JSON.stringify(data)}
+      Dados (JSON): ${JSON.stringify(data)}
 
-      Foque sua análise em:
-      1. Variação de adesões vs. desistências (Churn da carteira).
-      2. Correlação com Selic e inflação (IPCA) para os Segmentos 1 a 6.
-      3. Oportunidades regionais baseadas nos "Dados por UF".
-
-      Use o Google Search para validar o cenário macroeconômico atual.
+      Retorne APENAS um JSON válido seguindo estritamente este formato:
+      {
+        "summary": "Manchete executiva de uma frase sobre a situação geral.",
+        "points": [
+          {
+            "title": "Título curto do ponto",
+            "content": "Explicação detalhada...",
+            "type": "positive" | "negative" | "neutral" | "info"
+          }
+        ],
+        "recommendation": "Uma ação estratégica recomendada."
+      }
     `;
 
     const response = await ai.models.generateContent({
       model: 'gemini-3-pro-preview',
       contents: prompt,
       config: {
+        responseMimeType: "application/json",
         tools: [{ googleSearch: {} }]
       }
     });
+
+    const text = response.text;
+    if (!text) throw new Error("Resposta vazia da IA");
+
+    const parsed = JSON.parse(text) as AIAnalysisResult;
 
     const sources = response.candidates?.[0]?.groundingMetadata?.groundingChunks
       ?.filter(chunk => chunk.web)
@@ -46,12 +63,19 @@ export const generateMarketInsight = async (
       })) || [];
 
     return {
-      text: response.text || "Não foi possível gerar insights no momento.",
+      ...parsed,
       sources: sources.length > 0 ? sources : undefined
     };
+
   } catch (error) {
     console.error("Erro ao gerar insights:", error);
-    return { text: "Ocorreu um erro ao processar a análise inteligente." };
+    return {
+      summary: "Não foi possível gerar a análise.",
+      points: [
+        { title: "Erro Técnico", content: "Ocorreu uma falha na comunicação com a IA.", type: "negative" }
+      ],
+      recommendation: "Tente novamente em instantes."
+    };
   }
 };
 

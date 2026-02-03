@@ -214,8 +214,9 @@ export const AdministratorAnalysis: React.FC<Props> = ({ data }) => {
     `;
 
     const result = await generateMarketInsight(context, {});
-    setAiAnalysis(result.text);
-    localStorage.setItem(`admin_analysis_${adminAId}`, result.text);
+    const jsonStr = JSON.stringify(result);
+    setAiAnalysis(jsonStr);
+    localStorage.setItem(`admin_analysis_${adminAId}`, jsonStr);
     setLoadingAi(false);
   };
 
@@ -470,18 +471,67 @@ export const AdministratorAnalysis: React.FC<Props> = ({ data }) => {
       </div>
 
       {aiAnalysis && viewMode === 'detail' && (
-        <div className="bg-indigo-50 border border-indigo-100 rounded-2xl p-6 shadow-sm animate-fade-in relative">
-          <div className="flex items-start gap-4">
-            <div className="p-3 bg-indigo-100 rounded-lg text-indigo-600">
+        <div className="bg-white border border-indigo-100 rounded-2xl p-6 shadow-sm animate-fade-in relative overflow-hidden">
+          <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none">
+            <Sparkles size={80} className="text-indigo-600" />
+          </div>
+
+          <div className="flex items-center gap-3 mb-6">
+            <div className="p-2 bg-indigo-100 rounded-lg text-indigo-600">
               <Sparkles size={24} />
             </div>
             <div>
-              <h3 className="text-indigo-900 font-bold text-lg mb-2">Insight Estratégico Gemini</h3>
-              <div className="prose prose-sm text-slate-700 max-w-none">
-                {aiAnalysis}
-              </div>
+              <h3 className="text-indigo-900 font-bold text-lg">Insight Estratégico Gemini</h3>
+              <p className="text-sm text-slate-500">Análise de performance e riscos.</p>
             </div>
           </div>
+
+          {(() => {
+            let parsed;
+            try {
+              parsed = typeof aiAnalysis === 'string' ? JSON.parse(aiAnalysis) : aiAnalysis;
+            } catch (e) { return <p className="text-slate-500">Erro ao ler análise.</p>; }
+
+            // Fallback for old text format if exists in localStorage
+            if (parsed.text) return <p className="text-slate-700">{parsed.text}</p>;
+
+            return (
+              <>
+                <div className="mb-6">
+                  <p className="text-lg font-medium text-slate-800 italic border-l-4 border-indigo-500 pl-4 py-1">
+                    "{parsed.summary}"
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                  {parsed.points?.map((point: any, idx: number) => (
+                    <div key={idx} className={`p-4 rounded-xl border ${point.type === 'positive' ? 'bg-green-50/50 border-green-100' :
+                      point.type === 'negative' ? 'bg-red-50/50 border-red-100' :
+                        'bg-slate-50/50 border-slate-100'
+                      }`}>
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className={`text-xs font-bold uppercase tracking-wider ${point.type === 'positive' ? 'text-green-700' :
+                          point.type === 'negative' ? 'text-red-700' :
+                            'text-slate-600'
+                          }`}>{point.title}</span>
+                      </div>
+                      <p className="text-sm text-slate-700 leading-relaxed">{point.content}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {parsed.recommendation && (
+                  <div className="bg-indigo-600 text-white rounded-xl p-5 flex gap-4 shadow-lg shadow-indigo-900/20">
+                    <div className="mt-1"><Target size={20} /></div>
+                    <div>
+                      <h4 className="font-bold text-indigo-100 text-sm uppercase mb-1">Estratégia Recomendada</h4>
+                      <p className="text-white text-sm font-medium">{parsed.recommendation}</p>
+                    </div>
+                  </div>
+                )}
+              </>
+            );
+          })()}
         </div>
       )}
 

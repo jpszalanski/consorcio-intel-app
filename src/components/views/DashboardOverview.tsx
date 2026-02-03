@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { MetricsCard } from '../charts/MetricsCard';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
-import { generateMarketInsight, MarketInsightResult } from '../../services/geminiService';
+import { generateMarketInsight, AIAnalysisResult } from '../../services/geminiService';
 import { Sparkles, Loader2, Database, BadgePercent, ArrowUpRight } from 'lucide-react';
 import { PeriodSelector, PeriodOption } from '../common/PeriodSelector';
 import { DataInspector } from '../common/DataInspector';
@@ -28,7 +28,7 @@ const SEGMENT_COLORS: Record<string, string> = {
 };
 
 export const DashboardOverview: React.FC<Props> = ({ data }) => {
-  const [insightData, setInsightData] = useState<MarketInsightResult | null>(null);
+  const [insightData, setInsightData] = useState<AIAnalysisResult | null>(null);
   const [loadingInsight, setLoadingInsight] = useState(false);
   const [period, setPeriod] = useState<PeriodOption>('1y');
 
@@ -242,18 +242,66 @@ export const DashboardOverview: React.FC<Props> = ({ data }) => {
       </div>
 
       {insightData && (
-        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100 rounded-2xl p-6 shadow-sm animate-fade-in relative">
-          <div className="flex items-start gap-4">
-            <div className="p-3 bg-blue-100 rounded-lg text-blue-600">
+        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm animate-fade-in relative overflow-hidden">
+          <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none">
+            <Sparkles size={80} className="text-blue-600" />
+          </div>
+
+          <div className="flex items-center gap-3 mb-6">
+            <div className="p-2 bg-blue-100 rounded-lg text-blue-600">
               <Sparkles size={24} />
             </div>
             <div>
-              <h3 className="text-blue-900 font-bold text-lg mb-2">Análise de Inteligência de Mercado</h3>
-              <div className="prose prose-sm text-slate-700 max-w-none">
-                {insightData.text}
-              </div>
+              <h3 className="text-lg font-bold text-slate-900">Análise de Inteligência de Mercado</h3>
+              <p className="text-sm text-slate-500">Insights gerados por IA com base nos dados do BACEN.</p>
             </div>
           </div>
+
+          <div className="mb-6">
+            <p className="text-lg font-medium text-slate-800 italic border-l-4 border-blue-500 pl-4 py-1">
+              "{insightData.summary}"
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+            {insightData.points.map((point, idx) => (
+              <div key={idx} className={`p-4 rounded-xl border ${point.type === 'positive' ? 'bg-green-50/50 border-green-100' :
+                point.type === 'negative' ? 'bg-red-50/50 border-red-100' :
+                  'bg-slate-50/50 border-slate-100'
+                }`}>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className={`text-xs font-bold uppercase tracking-wider ${point.type === 'positive' ? 'text-green-700' :
+                    point.type === 'negative' ? 'text-red-700' :
+                      'text-slate-600'
+                    }`}>{point.title}</span>
+                </div>
+                <p className="text-sm text-slate-700 leading-relaxed">{point.content}</p>
+              </div>
+            ))}
+          </div>
+
+          {insightData.recommendation && (
+            <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-5 flex gap-4">
+              <div className="mt-1 text-indigo-600"><ArrowUpRight size={20} /></div>
+              <div>
+                <h4 className="font-bold text-indigo-900 text-sm uppercase mb-1">Recomendação Estratégica</h4>
+                <p className="text-indigo-800 text-sm">{insightData.recommendation}</p>
+              </div>
+            </div>
+          )}
+
+          {insightData.sources && insightData.sources.length > 0 && (
+            <div className="mt-4 pt-4 border-t border-slate-100">
+              <p className="text-xs text-slate-400 mb-2 font-medium">Fontes processadas:</p>
+              <div className="flex flex-wrap gap-2">
+                {insightData.sources.map((s, i) => (
+                  <a key={i} href={s.uri} target="_blank" rel="noreferrer" className="text-xs text-blue-500 hover:underline bg-blue-50 px-2 py-1 rounded truncate max-w-[200px]">
+                    {s.title}
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
