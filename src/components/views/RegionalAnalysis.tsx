@@ -47,19 +47,22 @@ export const RegionalAnalysis: React.FC<Props> = ({ data }) => {
 
       const current = ufMap.get(uf)!;
       // Mapping Strict QuarterlyData fields to View fields
-      current.activeContemplatedBid += (item.totais.contemplados_lance || 0);
-      current.activeContemplatedLottery += (item.totais.contemplados_sorteio || 0);
-      current.activeNonContemplated += (item.totais.ativos_nao_contemplados || 0);
+      // Corrected based on types.ts:
+      // active/contemplated stock -> acumulados
+      // flow -> trimestre
+      // totals -> totais
 
-      // Strict: "excluidos_contemplados" is mostly 0 or tricky. "excluidos_nao_contemplados" is NOT in source file (Note 1.4).
-      // Oops, `ESTRUTURA DE DADOS.txt` says: "IMPORTANTE: NAO EXISTE no layout o campo Quantidade_de_consorciados_excluídos_não_contemplados...".
-      // But `QuarterlyData` interface in types.ts (Step 875 check) has `excluidos_contemplados` and `taxa_adesao`.
-      // Let's use what we have. If strict mapping omitted calculated dropouts, we use 0.
-      current.dropoutContemplated += (item.totais.excluidos_contemplados || 0);
-      current.dropoutNonContemplated += 0; // Not available in source
+      current.activeContemplatedBid += (item.acumulados.contemplados_lance || 0);
+      current.activeContemplatedLottery += (item.acumulados.contemplados_sorteio || 0);
+      current.activeNonContemplated += (item.acumulados.ativos_nao_contemplados || 0);
 
-      current.newAdhesionsQuarter += (item.totais.adesoes || 0);
-      current.totalActive += (item.totais.total_ativos || 0);
+      current.dropoutContemplated += (item.acumulados.excluidos_contemplados || 0);
+      current.dropoutNonContemplated += (item.acumulados.excluidos_nao_contemplados || 0);
+
+      current.newAdhesionsQuarter += (item.trimestre.adesoes || 0);
+
+      // Fix: 'ativos_total' is the correct property, not 'total_ativos'
+      current.totalActive += (item.totais.ativos_total || 0);
     });
 
     return Array.from(ufMap.values()).sort((a, b) => b.totalActive - a.totalActive);
