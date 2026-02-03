@@ -258,13 +258,13 @@ export const AdministratorAnalysis: React.FC<Props> = ({ data }) => {
                   {admin!.name}
                 </td>
                 <td className="px-6 py-4 text-right font-medium text-blue-700 bg-blue-50/30">
-                  R$ {(admin!.totalBalance / 1_000_000).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })} M
+                  R$ {(admin!.totalBalance / 1_000_000).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} M
                 </td>
                 <td className="px-6 py-4 text-right text-slate-700">
-                  {admin!.totalActive.toLocaleString()}
+                  {admin!.totalActive.toLocaleString('pt-BR')}
                 </td>
                 <td className="px-6 py-4 text-right text-slate-500">
-                  R$ {admin!.avgTicket.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                  R$ {admin!.avgTicket.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
                 </td>
                 <td className="px-6 py-4 text-center">
                   <span className={`px-2 py-1 rounded-full text-xs font-bold ${admin!.defaultRate > 5 ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>
@@ -318,9 +318,9 @@ export const AdministratorAnalysis: React.FC<Props> = ({ data }) => {
           <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
             <div className="absolute top-0 right-0 p-3 opacity-10"><Wallet size={40} /></div>
             <p className="text-sm text-slate-500 font-medium uppercase tracking-wider">Saldo de Carteira</p>
-            <p className="text-2xl font-bold text-slate-900 mt-1">R$ {(metricsA.totalBalance / 1_000_000).toFixed(1)} M</p>
+            <p className="text-2xl font-bold text-slate-900 mt-1">R$ {(metricsA.totalBalance / 1_000_000).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} M</p>
             <div className="mt-2 text-xs flex items-center gap-1 text-slate-400 font-medium">
-              <Users size={12} /> {metricsA.totalActive.toLocaleString()} cotas ativas
+              <Users size={12} /> {metricsA.totalActive.toLocaleString('pt-BR')} cotas ativas
             </div>
           </div>
 
