@@ -10,7 +10,7 @@ interface FileControlRecord {
     storagePath: string;
     fileType: string;
     processedAt: any;
-    status: 'PENDING' | 'PROCESSING' | 'SUCCESS' | 'ERROR';
+    status: 'PENDING' | 'UPLOADED' | 'PROCESSING' | 'SUCCESS' | 'ERROR';
     rowsProcessed: number;
     referenceDate?: string;
     errorDetails?: string;
@@ -97,8 +97,8 @@ export const FileControlView: React.FC = () => {
                         key={type.value}
                         onClick={() => setFilterType(type.value)}
                         className={`px-4 py-2 rounded-lg text-sm font-bold whitespace-nowrap transition-colors ${filterType === type.value
-                                ? 'bg-slate-900 text-white'
-                                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                            ? 'bg-slate-900 text-white'
+                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                             }`}
                     >
                         {type.label}
@@ -126,6 +126,7 @@ export const FileControlView: React.FC = () => {
                                 <div className="shrink-0">
                                     {file.status === 'SUCCESS' && <div className="bg-green-100 p-3 rounded-full"><CheckCircle2 className="text-green-600" size={24} /></div>}
                                     {file.status === 'PROCESSING' && <div className="bg-blue-100 p-3 rounded-full"><Loader2 className="text-blue-600 animate-spin" size={24} /></div>}
+                                    {file.status === 'UPLOADED' && <div className="bg-slate-100 p-3 rounded-full" title="Importado (Aguardando Processamento)"><FileText className="text-slate-600" size={24} /></div>}
                                     {file.status === 'ERROR' && <div className="bg-red-100 p-3 rounded-full"><AlertCircle className="text-red-600" size={24} /></div>}
                                     {file.status === 'PENDING' && <div className="bg-slate-100 p-3 rounded-full"><Loader2 className="text-slate-600" size={24} /></div>}
                                 </div>
