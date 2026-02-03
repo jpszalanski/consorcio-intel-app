@@ -16,7 +16,7 @@ import { ErrorBoundary } from 'react-error-boundary';
 import { ErrorFallback } from './components/common/ErrorBoundary';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('import'); // Default to Import to unblock user
+  const [activeTab, setActiveTab] = useState('dashboard');
   const [isMobileOpen, setIsMobileOpen] = useState(false);
 
   // Estado Global de Dados (Cache simples)
