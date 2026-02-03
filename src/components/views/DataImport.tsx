@@ -44,6 +44,10 @@ export const DataImport: React.FC = () => {
 
     // Fallback: Column based
     if (h.some(x => x.includes('valormedio') || x.includes('vlbem'))) return 'movables';
+
+    // Fix for User: Prioritize UF detection if specific columns exist
+    if (h.some(x => x.includes('unidade') && x.includes('federacao')) || h.includes('uf')) return 'regional_uf';
+
     if (h.includes('codigodosegmento') && !h.some(x => x.includes('valormedio'))) return 'segments';
 
     return null;
@@ -147,8 +151,8 @@ export const DataImport: React.FC = () => {
       <div
         onClick={() => setClearBeforeImport(!clearBeforeImport)}
         className={`border rounded-xl p-4 flex items-start gap-4 cursor-pointer transition-all select-none ${clearBeforeImport
-            ? 'bg-amber-50 border-amber-200'
-            : 'bg-white border-slate-200 hover:border-slate-300'
+          ? 'bg-amber-50 border-amber-200'
+          : 'bg-white border-slate-200 hover:border-slate-300'
           }`}
       >
         <div className={`mt-1 transition-colors ${clearBeforeImport ? 'text-amber-600' : 'text-slate-400'}`}>
