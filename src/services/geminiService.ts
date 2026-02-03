@@ -21,23 +21,30 @@ export const generateMarketInsight = async (
     const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
 
     const prompt = `
-      Você é um especialista em análise regulatória e mercadológica do Consórcio.
-      Analise os dados fornecidos.
+      Você é um especialista em análise regulatória e mercadológica do Banco Central do Brasil (BACEN) para o setor de consórcios.
+      Analise os dados fornecidos considerando as Circulares (ex: Circular 3.679/14) e os documentos padrões (2080, 4010).
       
       Contexto: ${context}
       Dados (JSON): ${JSON.stringify(data)}
 
-      Retorne APENAS um JSON válido seguindo estritamente este formato:
+      Foque sua análise nos seguintes pontos CRÍTICOS (Items de Análise Obrigatórios):
+      1. Variação de adesões vs. desistências (Churn da carteira).
+      2. Correlação com Selic e inflação (IPCA) para os Segmentos de atuação.
+      3. Oportunidades ou riscos regionais baseados nos dados.
+
+      Use o Google Search para validar o cenário macroeconômico atual (Selic, IPCA).
+
+      Retorne APENAS um JSON válido seguindo estritamente este formato para renderização:
       {
         "summary": "Manchete executiva de uma frase sobre a situação geral.",
         "points": [
           {
-            "title": "Título curto do ponto",
-            "content": "Explicação detalhada...",
+            "title": "Título curto do ponto (ex: Análise de Churn)",
+            "content": "Explicação detalhada focada nos itens obrigatórios acima...",
             "type": "positive" | "negative" | "neutral" | "info"
           }
         ],
-        "recommendation": "Uma ação estratégica recomendada."
+        "recommendation": "Uma ação estratégica recomendada baseada na análise."
       }
     `;
 
