@@ -3,6 +3,56 @@ import * as admin from "firebase-admin";
 import * as os from "os";
 import * as path from "path";
 import * as fs from "fs";
+import { BigQuery } from "@google-cloud/bigquery";
+
+const bigquery = new BigQuery();
+const DATASET_ID = 'consorcio_data';
+const LOCATION = 'US'; // Configure as needed
+
+// --- SCHEMAS ---
+const SCHEMAS: any = {
+    'series_consolidadas': [
+        { name: 'cnpj_raiz', type: 'STRING' },
+        { name: 'codigo_segmento', type: 'INTEGER' },
+        { name: 'data_base', type: 'STRING' },
+        { name: 'metricas_raw', type: 'STRING' },
+        { name: 'uploaded_at', type: 'TIMESTAMP' }
+    ],
+    'grupos_detalhados': [
+        { name: 'cnpj_raiz', type: 'STRING' },
+        { name: 'codigo_grupo', type: 'STRING' },
+        { name: 'tipo', type: 'STRING' },
+        { name: 'data_base', type: 'STRING' },
+        { name: 'metricas_raw', type: 'STRING' },
+        { name: 'uploaded_at', type: 'TIMESTAMP' }
+    ],
+    'dados_trimestrais_uf': [
+        { name: 'cnpj_raiz', type: 'STRING' },
+        { name: 'uf', type: 'STRING' },
+        { name: 'metricas_raw', type: 'STRING' },
+        { name: 'uploaded_at', type: 'TIMESTAMP' }
+    ]
+};
+
+const ensureInfrastructure = async (tableId: string) => {
+    // 1. Ensure Dataset
+    const dataset = bigquery.dataset(DATASET_ID);
+    const [datasetExists] = await dataset.exists();
+    if (!datasetExists) {
+        console.log(`Creating dataset: ${DATASET_ID}`);
+        await bigquery.createDataset(DATASET_ID, { location: LOCATION });
+    }
+
+    // 2. Ensure Table
+    const table = dataset.table(tableId);
+    const [tableExists] = await table.exists();
+    if (!tableExists) {
+        console.log(`Creating table: ${tableId}`);
+        const schema = SCHEMAS[tableId];
+        if (!schema) throw new Error(`Schema not defined for ${tableId}`);
+        await table.create({ schema });
+    }
+};
 
 admin.initializeApp();
 
@@ -117,7 +167,7 @@ export const processFileUpload = functions.storage.object().onFinalize(async (ob
     const headers = firstLine.split(separator).map(h => h.trim().replace(/^"|"$/g, ''));
 
     // Detect Type
-    let importType: 'segments' | 'real_estate' | 'movables' | 'regional_uf' | null = null;
+    let importType: 'segments' | 'real_estate' | 'movables' | 'moveis' | 'regional_uf' | null = null;
     const nameNorm = normalizeKey(fileName);
     if (nameNorm.includes('imoveis')) importType = 'real_estate';
     else if (nameNorm.includes('moveis')) importType = 'movables';
@@ -173,9 +223,24 @@ export const processFileUpload = functions.storage.object().onFinalize(async (ob
     console.log(`Parsed ${rowsToInsert.length} rows.`);
 
     try {
-        // BIGQUERY INSERTION STUB
-        // await bigquery.dataset('consorcio_data').table(rowsToInsert[0].table).insert(rowsToInsert.map(r => r.data));
-        console.log(`[MOCK] Inserting into BigQuery: ${rowsToInsert.length} records into table ${rowsToInsert[0]?.table}`);
+        // BIGQUERY INSERTION
+        // BIGQUERY INSERTION
+        if (rowsToInsert.length > 0) {
+            const tableId = rowsToInsert[0].table;
+
+            // Ensure Infra (Create Dataset/Table if missing)
+            await ensureInfrastructure(tableId);
+
+            // BigQuery insert accepts array of objects (the 'data' property)
+            // Add uploaded_at timestamp
+            const rawData = rowsToInsert.map(r => ({
+                ...r.data,
+                uploaded_at: bigquery.timestamp(new Date())
+            }));
+
+            await bigquery.dataset(DATASET_ID).table(tableId).insert(rawData);
+            console.log(`[SUCCESS] Inserted ${rawData.length} rows into ${DATASET_ID}.${tableId}`);
+        }
 
         // 2. Success Report
         await controlRef.update({

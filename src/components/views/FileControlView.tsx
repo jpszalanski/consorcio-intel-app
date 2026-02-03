@@ -1,11 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, orderBy, onSnapshot, deleteDoc, doc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { db } from '../../services/firebase';
-import { FileText, RefreshCw, Trash2, CheckCircle2, AlertCircle, Loader2, Calendar, Filter } from 'lucide-react';
+import { uploadFileToStorage } from '../../services/storageService';
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { IMPORT_DEFINITIONS, getMonthOptions, getYearOptions } from '../../types/uploadTypes';
+import {
+    FileText, RefreshCw, Trash2, CheckCircle2, AlertCircle, Loader2,
+    Calendar, UploadCloud, ChevronRight, HardDrive
+} from 'lucide-react';
 
 interface FileControlRecord {
-    id: string; // filename without ext
+    id: string;
     fileName: string;
     storagePath: string;
     fileType: string;
@@ -14,172 +20,248 @@ interface FileControlRecord {
     rowsProcessed: number;
     referenceDate?: string;
     errorDetails?: string;
-    bigQueryTable?: string;
 }
 
-const IMPORT_TYPES = [
-    { label: 'Todos', value: 'ALL' },
-    { label: 'Segmentos', value: 'segments' },
-    { label: 'Imóveis', value: 'real_estate' },
-    { label: 'Móveis', value: 'moveis' },
-    { label: 'Dados UF', value: 'regional_uf' },
-];
-
 export const FileControlView: React.FC = () => {
-    const [records, setRecords] = useState<FileControlRecord[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [filterType, setFilterType] = useState('ALL');
-    const [processingId, setProcessingId] = useState<string | null>(null);
+    // 1. Competence State
+    const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
+    const [selectedMonth, setSelectedMonth] = useState(() => {
+        const m = new Date().getMonth(); // 0-11. current month.
+        // Usually data is from previous month, but let's default to current for now
+        return (m + 1).toString().padStart(2, '0');
+    });
 
-    // Load Data Real-time
+    // 2. Data State
+    const [records, setRecords] = useState<FileControlRecord[]>([]);
+    const [loading, setLoading] = useState(false);
+    const [processingId, setProcessingId] = useState<string | null>(null);
+    const [uploadingType, setUploadingType] = useState<string | null>(null);
+
+    // 3. Computed Competence String (YYYY-MM)
+    const competenceKey = `${selectedYear}-${selectedMonth}`;
+
+    // 4. Load Data for Competence
     useEffect(() => {
-        const q = query(collection(db, 'file_imports_control'), orderBy('processedAt', 'desc'));
+        setLoading(true);
+        // Note: referenceDate in Firestore is "YYYY-MM"
+        const q = query(
+            collection(db, 'file_imports_control'),
+            where('referenceDate', '==', competenceKey)
+        );
+
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as FileControlRecord));
             setRecords(data);
             setLoading(false);
         });
         return () => unsubscribe();
-    }, []);
+    }, [competenceKey]);
 
+    // 5. Actions
     const handleReprocess = async (file: FileControlRecord) => {
-        if (!confirm(`Deseja reprocessar o arquivo "${file.fileName}"?`)) return;
+        if (!confirm(`Reprocessar ${file.fileName}?`)) return;
         setProcessingId(file.id);
         try {
             const functions = getFunctions();
             const reprocess = httpsCallable(functions, 'reprocessFile');
             await reprocess({ storagePath: file.storagePath });
-            alert('Reprocessamento iniciado! O status será atualizado em breve.');
+            alert('Reprocessamento iniciado!');
         } catch (error: any) {
-            console.error(error);
-            alert('Erro ao iniciar reprocessamento: ' + error.message);
+            alert('Erro: ' + error.message);
         } finally {
             setProcessingId(null);
         }
     };
 
     const handleDelete = async (file: FileControlRecord) => {
-        if (!confirm(`ATENÇÃO: Isso excluirá o arquivo "${file.fileName}" do Storage e este registro.\nDeseja continuar?`)) return;
+        if (!confirm(`Excluir arquivo ${file.fileName}?`)) return;
         setProcessingId(file.id);
         try {
             const functions = getFunctions();
             const del = httpsCallable(functions, 'deleteFile');
             await del({ fileId: file.id, storagePath: file.storagePath });
-            // UI update happens via snapshot, but we can be optimistic if we wanted
         } catch (error: any) {
-            console.error(error);
-            alert('Erro ao excluir: ' + error.message);
+            alert('Erro: ' + error.message);
         } finally {
             setProcessingId(null);
         }
     };
 
-    const filteredRecords = records.filter(r => {
-        if (filterType !== 'ALL' && r.fileType !== filterType) return false;
-        return true;
-    });
+    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, typeId: string) => {
+        if (!e.target.files?.length) return;
+        const file = e.target.files[0];
+        setUploadingType(typeId);
+
+        try {
+            // Upload to Storage
+            const { storagePath } = await uploadFileToStorage(file, (p) => { });
+
+            // Register 'UPLOADED' record immediately
+            // Must manually force the referenceDate to match the selected competence 
+            // to ensure it shows up in this view, even if filename differs partially
+            const safeId = file.name.replace(/\.[^/.]+$/, "");
+
+            await setDoc(doc(db, 'file_imports_control', safeId), {
+                fileName: file.name,
+                storagePath: storagePath,
+                fileType: typeId, // Force the type based on the row clicked
+                referenceDate: competenceKey, // Force the date based on selector
+                processedAt: serverTimestamp(),
+                status: 'UPLOADED',
+                rowsProcessed: 0
+            });
+
+        } catch (error: any) {
+            alert('Erro no upload: ' + error.message);
+        } finally {
+            setUploadingType(null);
+            // Reset input
+            e.target.value = '';
+        }
+    };
 
     return (
         <div className="max-w-6xl mx-auto space-y-8 animate-fade-in pb-20">
-            <div className="flex justify-between items-end">
+            {/* Header & Governance Selector */}
+            <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
                 <div>
-                    <h2 className="text-3xl font-bold text-slate-900">Painel de Controle de Arquivos (Governance)</h2>
-                    <p className="text-slate-500 mt-2">Gerencie, audite e monitore o ciclo de vida dos arquivos importados para o BigQuery.</p>
+                    <h2 className="text-3xl font-bold text-slate-900 flex items-center gap-3">
+                        <HardDrive className="text-blue-600" />
+                        Governança de Dados
+                    </h2>
+                    <p className="text-slate-500 mt-2">Fechamento Mensal e Controle de Qualidade.</p>
+                </div>
+
+                <div className="bg-white p-4 rounded-xl shadow-lg border border-slate-200 flex items-center gap-4">
+                    <div className="flex items-center gap-2 text-slate-600 font-bold border-r border-slate-200 pr-4">
+                        <Calendar size={20} />
+                        COMPETÊNCIA:
+                    </div>
+                    <select
+                        value={selectedMonth}
+                        onChange={e => setSelectedMonth(e.target.value)}
+                        className="bg-slate-50 border-none font-bold text-slate-800 focus:ring-0 rounded-lg"
+                    >
+                        {getMonthOptions().map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                    </select>
+                    <span className="text-slate-300">/</span>
+                    <select
+                        value={selectedYear}
+                        onChange={e => setSelectedYear(e.target.value)}
+                        className="bg-slate-50 border-none font-bold text-slate-800 focus:ring-0 rounded-lg"
+                    >
+                        {getYearOptions().map(y => <option key={y} value={y}>{y}</option>)}
+                    </select>
                 </div>
             </div>
 
-            {/* Filters */}
-            <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex items-center gap-4 overflow-x-auto">
-                <Filter className="text-slate-400" size={20} />
-                <span className="font-bold text-slate-700 text-sm">Filtrar por:</span>
-                {IMPORT_TYPES.map(type => (
-                    <button
-                        key={type.value}
-                        onClick={() => setFilterType(type.value)}
-                        className={`px-4 py-2 rounded-lg text-sm font-bold whitespace-nowrap transition-colors ${filterType === type.value
-                            ? 'bg-slate-900 text-white'
-                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                            }`}
-                    >
-                        {type.label}
-                    </button>
-                ))}
-            </div>
+            {/* Matrix Table */}
+            <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
+                <div className="bg-slate-50 px-6 py-4 border-b border-slate-200 flex justify-between items-center">
+                    <h3 className="font-bold text-slate-700">Arquivos Obrigatórios (Fechamento {competenceKey})</h3>
+                    <div className="text-xs font-bold px-3 py-1 bg-blue-100 text-blue-700 rounded-full">
+                        {records.filter(r => r.status === 'SUCCESS').length} / {IMPORT_DEFINITIONS.length} Concluídos
+                    </div>
+                </div>
 
-            {/* Grid */}
-            <div className="bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
                 <div className="divide-y divide-slate-100">
-                    {loading ? (
-                        <div className="p-12 text-center text-slate-400">
-                            <Loader2 className="animate-spin mx-auto mb-2" size={32} />
-                            <p>Carregando registros...</p>
-                        </div>
-                    ) : filteredRecords.length === 0 ? (
-                        <div className="p-12 text-center text-slate-400">
-                            <FileText className="mx-auto mb-4 opacity-50" size={48} />
-                            <p>Nenhum arquivo encontrado com os filtros atuais.</p>
-                        </div>
-                    ) : (
-                        filteredRecords.map((file) => (
-                            <div key={file.id} className="p-6 hover:bg-slate-50 transition-colors flex items-center gap-6 group">
-                                {/* Status Icon */}
-                                <div className="shrink-0">
-                                    {file.status === 'SUCCESS' && <div className="bg-green-100 p-3 rounded-full"><CheckCircle2 className="text-green-600" size={24} /></div>}
-                                    {file.status === 'PROCESSING' && <div className="bg-blue-100 p-3 rounded-full"><Loader2 className="text-blue-600 animate-spin" size={24} /></div>}
-                                    {file.status === 'UPLOADED' && <div className="bg-slate-100 p-3 rounded-full" title="Importado (Aguardando Processamento)"><FileText className="text-slate-600" size={24} /></div>}
-                                    {file.status === 'ERROR' && <div className="bg-red-100 p-3 rounded-full"><AlertCircle className="text-red-600" size={24} /></div>}
-                                    {file.status === 'PENDING' && <div className="bg-slate-100 p-3 rounded-full"><Loader2 className="text-slate-600" size={24} /></div>}
+                    {IMPORT_DEFINITIONS.map((def) => {
+                        // Find if we have a file for this Type
+                        const file = records.find(r => r.fileType === def.id);
+                        const isUploading = uploadingType === def.id;
+
+                        return (
+                            <div key={def.id} className="p-6 flex items-start md:items-center gap-6 group hover:bg-slate-50 transition-colors">
+                                {/* Definition Info */}
+                                <div className="w-1/3 min-w-[250px]">
+                                    <h4 className="font-bold text-slate-800">{def.label}</h4>
+                                    <p className="text-xs text-slate-500 mt-1">{def.description}</p>
+                                    <div className="mt-2 flex items-center gap-2">
+                                        <span className="text-[10px] font-bold uppercase tracking-wider bg-slate-100 text-slate-500 px-2 py-0.5 rounded">
+                                            {def.tableId}
+                                        </span>
+                                        {def.required && <span className="text-[10px] text-red-500 font-bold">*Obrigatório</span>}
+                                    </div>
                                 </div>
 
-                                {/* Main Info */}
-                                <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-3 mb-1">
-                                        <h3 className="font-bold text-slate-800 text-lg truncate" title={file.fileName}>{file.fileName}</h3>
-                                        <span className="px-2 py-0.5 bg-slate-100 text-slate-600 text-xs rounded font-bold uppercase tracking-wider border border-slate-200">
-                                            {file.fileType}
-                                        </span>
-                                    </div>
-
-                                    <div className="flex items-center gap-6 text-sm text-slate-500">
-                                        <div className="flex items-center gap-1.5" title="Data Base Detectada">
-                                            <Calendar size={14} />
-                                            {file.referenceDate || <span className="text-slate-300 italic">--/--</span>}
+                                {/* Status & File Info */}
+                                <div className="flex-1 border-l border-slate-100 pl-6">
+                                    {!file ? (
+                                        // Empty State (Pending)
+                                        <div className="flex items-center gap-4">
+                                            <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-400">
+                                                <AlertCircle size={20} />
+                                            </div>
+                                            <div>
+                                                <p className="font-bold text-slate-400">Pendente</p>
+                                                <p className="text-xs text-slate-400">Nenhum arquivo enviado para esta competência.</p>
+                                            </div>
                                         </div>
-                                        {file.status === 'SUCCESS' && (
-                                            <span>
-                                                Processados: <strong className="text-slate-700">{file.rowsProcessed} linhas</strong>
-                                            </span>
-                                        )}
-                                        {file.status === 'ERROR' && (
-                                            <span className="text-red-500 font-medium flex items-center gap-1">
-                                                Erro: {file.errorDetails}
-                                            </span>
-                                        )}
-                                    </div>
+                                    ) : (
+                                        // Filled State
+                                        <div className="flex items-center gap-4">
+                                            {/* Icon */}
+                                            <div className="shrink-0">
+                                                {file.status === 'SUCCESS' && <div className="bg-green-100 p-2 rounded-full"><CheckCircle2 className="text-green-600" size={20} /></div>}
+                                                {(file.status === 'PROCESSING' || file.status === 'UPLOADED') && <div className="bg-blue-100 p-2 rounded-full"><Loader2 className="text-blue-600 animate-spin" size={20} /></div>}
+                                                {file.status === 'ERROR' && <div className="bg-red-100 p-2 rounded-full"><AlertCircle className="text-red-600" size={20} /></div>}
+                                            </div>
+
+                                            <div className="min-w-0">
+                                                <p className="font-bold text-slate-700 truncate max-w-[300px]" title={file.fileName}>
+                                                    {file.fileName}
+                                                </p>
+                                                <div className="flex items-center gap-3 text-xs text-slate-500 mt-0.5">
+                                                    <span>{(new Date(file.processedAt?.seconds * 1000)).toLocaleString()}</span>
+                                                    {file.status === 'SUCCESS' && <span className="text-green-600 font-bold">{file.rowsProcessed} linhas</span>}
+                                                    {file.status === 'ERROR' && <span className="text-red-600 font-bold">{file.errorDetails}</span>}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
 
                                 {/* Actions */}
-                                <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <button
-                                        onClick={() => handleReprocess(file)}
-                                        disabled={processingId === file.id || file.status === 'PROCESSING'}
-                                        className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors disabled:opacity-50"
-                                        title="Reprocessar Arquivo (Forçar Releitura)"
-                                    >
-                                        {processingId === file.id ? <Loader2 className="animate-spin" size={20} /> : <RefreshCw size={20} />}
-                                    </button>
-                                    <button
-                                        onClick={() => handleDelete(file)}
-                                        disabled={processingId === file.id}
-                                        className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
-                                        title="Excluir Arquivo e Registro"
-                                    >
-                                        <Trash2 size={20} />
-                                    </button>
+                                <div className="shrink-0 flex items-center gap-2">
+                                    {/* Upload Button (if missing or error) */}
+                                    {(!file || file.status === 'ERROR') && (
+                                        <label className={`cursor-pointer bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 shadow-lg shadow-blue-200 transition-all active:scale-95 ${isUploading ? 'opacity-70 pointer-events-none' : ''}`}>
+                                            {isUploading ? <Loader2 className="animate-spin" size={16} /> : <UploadCloud size={16} />}
+                                            {isUploading ? 'Enviando...' : 'Enviar Arquivo'}
+                                            <input
+                                                type="file"
+                                                accept=".csv,.xlsx"
+                                                className="hidden"
+                                                onChange={(e) => handleFileUpload(e, def.id)}
+                                            />
+                                        </label>
+                                    )}
+
+                                    {/* Management Buttons (if exists) */}
+                                    {file && (
+                                        <>
+                                            <button
+                                                onClick={() => handleReprocess(file)}
+                                                disabled={processingId === file.id || file.status === 'PROCESSING' || file.status === 'UPLOADED'}
+                                                className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg disabled:opacity-50"
+                                                title="Reprocessar"
+                                            >
+                                                <RefreshCw size={18} />
+                                            </button>
+                                            <button
+                                                onClick={() => handleDelete(file)}
+                                                disabled={processingId === file.id}
+                                                className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg disabled:opacity-50"
+                                                title="Excluir"
+                                            >
+                                                <Trash2 size={18} />
+                                            </button>
+                                        </>
+                                    )}
                                 </div>
                             </div>
-                        ))
-                    )}
+                        );
+                    })}
                 </div>
             </div>
         </div>

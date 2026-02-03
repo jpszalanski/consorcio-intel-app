@@ -6,6 +6,53 @@ const admin = require("firebase-admin");
 const os = require("os");
 const path = require("path");
 const fs = require("fs");
+const bigquery_1 = require("@google-cloud/bigquery");
+const bigquery = new bigquery_1.BigQuery();
+const DATASET_ID = 'consorcio_data';
+const LOCATION = 'US'; // Configure as needed
+// --- SCHEMAS ---
+const SCHEMAS = {
+    'series_consolidadas': [
+        { name: 'cnpj_raiz', type: 'STRING' },
+        { name: 'codigo_segmento', type: 'INTEGER' },
+        { name: 'data_base', type: 'STRING' },
+        { name: 'metricas_raw', type: 'STRING' },
+        { name: 'uploaded_at', type: 'TIMESTAMP' }
+    ],
+    'grupos_detalhados': [
+        { name: 'cnpj_raiz', type: 'STRING' },
+        { name: 'codigo_grupo', type: 'STRING' },
+        { name: 'tipo', type: 'STRING' },
+        { name: 'data_base', type: 'STRING' },
+        { name: 'metricas_raw', type: 'STRING' },
+        { name: 'uploaded_at', type: 'TIMESTAMP' }
+    ],
+    'dados_trimestrais_uf': [
+        { name: 'cnpj_raiz', type: 'STRING' },
+        { name: 'uf', type: 'STRING' },
+        { name: 'metricas_raw', type: 'STRING' },
+        { name: 'uploaded_at', type: 'TIMESTAMP' }
+    ]
+};
+const ensureInfrastructure = async (tableId) => {
+    // 1. Ensure Dataset
+    const dataset = bigquery.dataset(DATASET_ID);
+    const [datasetExists] = await dataset.exists();
+    if (!datasetExists) {
+        console.log(`Creating dataset: ${DATASET_ID}`);
+        await bigquery.createDataset(DATASET_ID, { location: LOCATION });
+    }
+    // 2. Ensure Table
+    const table = dataset.table(tableId);
+    const [tableExists] = await table.exists();
+    if (!tableExists) {
+        console.log(`Creating table: ${tableId}`);
+        const schema = SCHEMAS[tableId];
+        if (!schema)
+            throw new Error(`Schema not defined for ${tableId}`);
+        await table.create({ schema });
+    }
+};
 admin.initializeApp();
 // --- SHARED LOGIC PORTED FROM dataStore.ts ---
 const normalizeKey = (str) => {
@@ -88,7 +135,7 @@ const mapQuarterlyData = (row) => {
 };
 // --- CLOUD FUNCTION ---
 exports.processFileUpload = functions.storage.object().onFinalize(async (object) => {
-    var _a, _b;
+    var _a;
     const filePath = object.name;
     const bucket = admin.storage().bucket(object.bucket);
     if (!filePath || !filePath.startsWith("raw-uploads/")) {
@@ -164,15 +211,24 @@ exports.processFileUpload = functions.storage.object().onFinalize(async (object)
     });
     console.log(`Parsed ${rowsToInsert.length} rows.`);
     try {
-        // BIGQUERY INSERTION STUB
-        // await bigquery.dataset('consorcio_data').table(rowsToInsert[0].table).insert(rowsToInsert.map(r => r.data));
-        console.log(`[MOCK] Inserting into BigQuery: ${rowsToInsert.length} records into table ${(_a = rowsToInsert[0]) === null || _a === void 0 ? void 0 : _a.table}`);
+        // BIGQUERY INSERTION
+        // BIGQUERY INSERTION
+        if (rowsToInsert.length > 0) {
+            const tableId = rowsToInsert[0].table;
+            // Ensure Infra (Create Dataset/Table if missing)
+            await ensureInfrastructure(tableId);
+            // BigQuery insert accepts array of objects (the 'data' property)
+            // Add uploaded_at timestamp
+            const rawData = rowsToInsert.map(r => (Object.assign(Object.assign({}, r.data), { uploaded_at: bigquery.timestamp(new Date()) })));
+            await bigquery.dataset(DATASET_ID).table(tableId).insert(rawData);
+            console.log(`[SUCCESS] Inserted ${rawData.length} rows into ${DATASET_ID}.${tableId}`);
+        }
         // 2. Success Report
         await controlRef.update({
             status: 'SUCCESS',
             rowsProcessed: rowsToInsert.length,
             referenceDate: detectedDate || 'UNKNOWN',
-            bigQueryTable: ((_b = rowsToInsert[0]) === null || _b === void 0 ? void 0 : _b.table) || 'UNKNOWN'
+            bigQueryTable: ((_a = rowsToInsert[0]) === null || _a === void 0 ? void 0 : _a.table) || 'UNKNOWN'
         });
     }
     catch (err) {
