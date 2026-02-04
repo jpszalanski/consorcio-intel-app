@@ -31,6 +31,13 @@ const SCHEMAS: any = {
         { name: 'uf', type: 'STRING' },
         { name: 'metricas_raw', type: 'STRING' },
         { name: 'uploaded_at', type: 'TIMESTAMP' }
+    ],
+    'administradoras': [
+        { name: 'cnpj', type: 'STRING' },
+        { name: 'nome', type: 'STRING' },
+        { name: 'data_base', type: 'STRING' },
+        { name: 'metricas_raw', type: 'STRING' },
+        { name: 'uploaded_at', type: 'TIMESTAMP' }
     ]
 };
 
@@ -165,6 +172,24 @@ const mapQuarterlyData = (row: any) => {
     };
 };
 
+const mapAdministrators = (row: any) => {
+    // Assuming file has CNPJ and Name/Nom_Admi
+    const cnpj = String(findValue(row, ['CNPJ', 'Cnpj', 'CNPJ_da_Administradora']) || '').replace(/\D/g, '');
+    const nome = String(findValue(row, ['Nome', 'Nome_da_Administradora', 'Nom_Admi', 'NOME_DA_ADMINISTRADORA']) || '');
+    if (!cnpj) return null;
+    const database = String(findValue(row, ['Data_base']) || '');
+
+    return {
+        table: 'administradoras',
+        data: {
+            cnpj: cnpj,
+            nome: nome,
+            data_base: database,
+            metricas_raw: JSON.stringify(row)
+        }
+    };
+};
+
 // --- CLOUD FUNCTION ---
 
 export const processFileUpload = functions.storage.object().onFinalize(async (object) => {
@@ -191,12 +216,13 @@ export const processFileUpload = functions.storage.object().onFinalize(async (ob
     const headers = firstLine.split(separator).map(h => h.trim().replace(/^"|"$/g, ''));
 
     // Detect Type
-    let importType: 'segments' | 'real_estate' | 'movables' | 'moveis' | 'regional_uf' | null = null;
+    let importType: 'segments' | 'real_estate' | 'movables' | 'moveis' | 'regional_uf' | 'administrators' | null = null;
     const nameNorm = normalizeKey(fileName);
     if (nameNorm.includes('imoveis')) importType = 'real_estate';
     else if (nameNorm.includes('moveis')) importType = 'movables';
     else if (nameNorm.includes('segmentos')) importType = 'segments';
     else if (nameNorm.includes('dadosporuf') || nameNorm.includes('consorciosuf') || (nameNorm.includes('uf') && !nameNorm.includes('imoveis') && !nameNorm.includes('moveis'))) importType = 'regional_uf';
+    else if (nameNorm.includes('administradoras') || nameNorm.includes('doc4010')) importType = 'administrators';
 
     // --- STATUS REPORTING ---
     const db = admin.firestore();
@@ -240,6 +266,7 @@ export const processFileUpload = functions.storage.object().onFinalize(async (ob
         if (importType === 'moveis') mapped = mapDetailedGroup(row, 'moveis'); // Fix: 'moveis' string check
         if (importType === 'movables') mapped = mapDetailedGroup(row, 'moveis'); // Handle both keys if needed
         if (importType === 'regional_uf') mapped = mapQuarterlyData(row);
+        if (importType === 'administrators') mapped = mapAdministrators(row);
 
         if (mapped) rowsToInsert.push(mapped);
     });

@@ -32,6 +32,13 @@ const SCHEMAS = {
         { name: 'uf', type: 'STRING' },
         { name: 'metricas_raw', type: 'STRING' },
         { name: 'uploaded_at', type: 'TIMESTAMP' }
+    ],
+    'administradoras': [
+        { name: 'cnpj', type: 'STRING' },
+        { name: 'nome', type: 'STRING' },
+        { name: 'data_base', type: 'STRING' },
+        { name: 'metricas_raw', type: 'STRING' },
+        { name: 'uploaded_at', type: 'TIMESTAMP' }
     ]
 };
 const ensureInfrastructure = async (tableId) => {
@@ -154,6 +161,23 @@ const mapQuarterlyData = (row) => {
         }
     };
 };
+const mapAdministrators = (row) => {
+    // Assuming file has CNPJ and Name/Nom_Admi
+    const cnpj = String(findValue(row, ['CNPJ', 'Cnpj', 'CNPJ_da_Administradora']) || '').replace(/\D/g, '');
+    const nome = String(findValue(row, ['Nome', 'Nome_da_Administradora', 'Nom_Admi', 'NOME_DA_ADMINISTRADORA']) || '');
+    if (!cnpj)
+        return null;
+    const database = String(findValue(row, ['Data_base']) || '');
+    return {
+        table: 'administradoras',
+        data: {
+            cnpj: cnpj,
+            nome: nome,
+            data_base: database,
+            metricas_raw: JSON.stringify(row)
+        }
+    };
+};
 // --- CLOUD FUNCTION ---
 exports.processFileUpload = functions.storage.object().onFinalize(async (object) => {
     var _a;
@@ -184,6 +208,8 @@ exports.processFileUpload = functions.storage.object().onFinalize(async (object)
         importType = 'segments';
     else if (nameNorm.includes('dadosporuf') || nameNorm.includes('consorciosuf') || (nameNorm.includes('uf') && !nameNorm.includes('imoveis') && !nameNorm.includes('moveis')))
         importType = 'regional_uf';
+    else if (nameNorm.includes('administradoras') || nameNorm.includes('doc4010'))
+        importType = 'administrators';
     // --- STATUS REPORTING ---
     const db = admin.firestore();
     const controlRef = db.collection('file_imports_control').doc(fileName.replace(/\.[^/.]+$/, "")); // ID = filename without ext
@@ -227,6 +253,8 @@ exports.processFileUpload = functions.storage.object().onFinalize(async (object)
             mapped = mapDetailedGroup(row, 'moveis'); // Handle both keys if needed
         if (importType === 'regional_uf')
             mapped = mapQuarterlyData(row);
+        if (importType === 'administrators')
+            mapped = mapAdministrators(row);
         if (mapped)
             rowsToInsert.push(mapped);
     });

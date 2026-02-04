@@ -30,6 +30,8 @@ const parseFileName = (fileName: string) => {
     const moveisRegex = /^(\d{4})[-_]?(\d{2})[-_]?Bens_Moveis_Grupos/i;
     // Matches: 202509Consorcios_UF, 202403UF, 2024-03-UF, etc.
     const ufRegex = /^(\d{4})[-_]?(\d{2})[-_]?(?:Consorcios_)?UF/i;
+    // Matches: 202412Doc_4010_Consorcios_Administradoras.csv
+    const adminRegex = /^(\d{4})[-_]?(\d{2})[-_]?Doc_4010_Consorcios_Administradoras/i;
 
     let fileType = 'UNKNOWN';
     let referenceDate = null;
@@ -43,6 +45,8 @@ const parseFileName = (fileName: string) => {
         fileType = 'moveis';
     } else if ((match = name.match(ufRegex))) {
         fileType = 'regional_uf';
+    } else if ((match = name.match(adminRegex))) {
+        fileType = 'administrators';
     }
 
     if (match) {
