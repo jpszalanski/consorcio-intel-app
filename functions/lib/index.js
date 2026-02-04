@@ -397,44 +397,52 @@ exports.getTrendData = functions.https.onCall(async (data, context) => {
 });
 exports.getAdministratorData = functions.https.onCall(async (data, context) => {
     const query = `
+        WITH LatestAdmins AS (
+            SELECT
+                SUBSTR(cnpj, 1, 8) as cnpj_raiz,
+                nome,
+                ROW_NUMBER() OVER(PARTITION BY SUBSTR(cnpj, 1, 8) ORDER BY data_base DESC) as rn
+            FROM \`consorcio_data.administradoras\`
+        )
         SELECT
-            cnpj_raiz,
-            ANY_VALUE(JSON_VALUE(metricas_raw, '$.Nome_da_Administradora')) as nome_reduzido,
+            t.cnpj_raiz,
+            COALESCE(ANY_VALUE(adm.nome), ANY_VALUE(JSON_VALUE(t.metricas_raw, '$.Nome_da_Administradora'))) as nome_reduzido,
             
             -- Volume
             SUM(
                 (
-                    SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) + 
-                    IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
-                    IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
-                ) * SAFE_CAST(REPLACE(REPLACE(JSON_VALUE(metricas_raw, '$.Valor_médio_do_bem'), '.', ''), ',', '.') AS FLOAT64)
+                    SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) + 
+                    IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
+                    IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
+                ) * SAFE_CAST(REPLACE(REPLACE(JSON_VALUE(t.metricas_raw, '$.Valor_médio_do_bem'), '.', ''), ',', '.') AS FLOAT64)
             ) as totalBalance,
 
             -- Active Quotas
             SUM(
-                SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) + 
-                IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
-                IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
+                SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) + 
+                IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
+                IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
             ) as totalActive,
             
             -- Defaults (Inadimplencia)
             SUM(
-                IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
-                IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
+                IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
+                IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
             ) as totalDefaults,
 
             -- Weighted Fees (Approx) - Sum(Tax * Active) / Sum(Active)
             SUM(
-               SAFE_CAST(REPLACE(REPLACE(JSON_VALUE(metricas_raw, '$.Taxa_de_administração'), '.', ''), ',', '.') AS FLOAT64) * 
-               (
-                    SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) + 
-                    IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
-                    IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
-               )
+                SAFE_CAST(REPLACE(REPLACE(JSON_VALUE(t.metricas_raw, '$.Taxa_de_administração'), '.', ''), ',', '.') AS FLOAT64) * 
+                (
+                    SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) + 
+                    IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
+                    IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
+                )
             ) as totalFeesWeighted
 
-        FROM \`consorcio_data.grupos_detalhados\`
-        GROUP BY cnpj_raiz
+        FROM \`consorcio_data.grupos_detalhados\` t
+        LEFT JOIN LatestAdmins adm ON adm.cnpj_raiz = t.cnpj_raiz AND adm.rn = 1
+        GROUP BY t.cnpj_raiz
         ORDER BY totalBalance DESC
     `;
     try {
@@ -451,55 +459,63 @@ exports.getAdministratorDetail = functions.https.onCall(async (data, context) =>
     if (!cnpj)
         throw new functions.https.HttpsError('invalid-argument', 'CNPJ required');
     const query = `
+        WITH LatestAdmins AS (
+            SELECT
+                SUBSTR(cnpj, 1, 8) as cnpj_raiz,
+                nome,
+                ROW_NUMBER() OVER(PARTITION BY SUBSTR(cnpj, 1, 8) ORDER BY data_base DESC) as rn
+            FROM \`consorcio_data.administradoras\`
+        )
         SELECT
-            data_base,
-            codigo_segmento,
-            ANY_VALUE(JSON_VALUE(metricas_raw, '$.Nome_da_Administradora')) as nome_reduzido,
+            t.data_base,
+            t.codigo_segmento,
+            COALESCE(ANY_VALUE(adm.nome), ANY_VALUE(JSON_VALUE(t.metricas_raw, '$.Nome_da_Administradora'))) as nome_reduzido,
             
              SUM(
                 (
-                    SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) + 
-                    IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
-                    IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
-                ) * SAFE_CAST(REPLACE(REPLACE(JSON_VALUE(metricas_raw, '$.Valor_médio_do_bem'), '.', ''), ',', '.') AS FLOAT64)
+                    SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) + 
+                    IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
+                    IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
+                ) * SAFE_CAST(REPLACE(REPLACE(JSON_VALUE(t.metricas_raw, '$.Valor_médio_do_bem'), '.', ''), ',', '.') AS FLOAT64)
             ) as total_volume,
 
             SUM(
-                SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) + 
-                IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
-                IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
+                SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) + 
+                IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
+                IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
             ) as total_active,
 
              -- KPIs for Average (Fee, Term)
             SUM(
-               SAFE_CAST(REPLACE(REPLACE(JSON_VALUE(metricas_raw, '$.Taxa_de_administração'), '.', ''), ',', '.') AS FLOAT64) * 
+               SAFE_CAST(REPLACE(REPLACE(JSON_VALUE(t.metricas_raw, '$.Taxa_de_administração'), '.', ''), ',', '.') AS FLOAT64) * 
                (
-                    SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) + 
-                    IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
-                    IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
+                    SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) + 
+                    IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
+                    IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
                )
             ) as total_fees_weighted,
 
              SUM(
-               SAFE_CAST(JSON_VALUE(metricas_raw, '$.Prazo_do_grupo_em_meses') AS INT64) * 
+               SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Prazo_do_grupo_em_meses') AS INT64) * 
                (
-                    SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) + 
-                    IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
-                    IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
+                    SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) + 
+                    IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
+                    IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
                )
             ) as total_term_weighted,
 
             SUM(
-                IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
-                IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
+                IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
+                IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
             ) as total_defaults,
             
-            SUM(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_excluídas') AS INT64)) as total_dropouts
+            SUM(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_excluídas') AS INT64)) as total_dropouts
 
-        FROM \`consorcio_data.grupos_detalhados\`
-        WHERE cnpj_raiz = @cnpj
-        GROUP BY data_base, codigo_segmento
-        ORDER BY data_base ASC
+        FROM \`consorcio_data.grupos_detalhados\` t
+        LEFT JOIN LatestAdmins adm ON adm.cnpj_raiz = t.cnpj_raiz AND adm.rn = 1
+        WHERE t.cnpj_raiz = @cnpj
+        GROUP BY t.data_base, t.codigo_segmento
+        ORDER BY t.data_base ASC
     `;
     try {
         const [rows] = await bigquery.query({
@@ -556,25 +572,33 @@ exports.getOperationalData = functions.https.onCall(async (data, context) => {
     else {
         // Market Overview (Scatter) - Aggregated by Admin
         query = `
+    WITH LatestAdmins AS (
+        SELECT
+            SUBSTR(cnpj, 1, 8) as cnpj_raiz,
+            nome,
+            ROW_NUMBER() OVER(PARTITION BY SUBSTR(cnpj, 1, 8) ORDER BY data_base DESC) as rn
+        FROM \`consorcio_data.administradoras\`
+    )
     SELECT
-        cnpj_raiz,
-        ANY_VALUE(JSON_VALUE(metricas_raw, '$.Nome_da_Administradora')) as nome_reduzido,
+        t.cnpj_raiz,
+        COALESCE(ANY_VALUE(adm.nome), ANY_VALUE(JSON_VALUE(t.metricas_raw, '$.Nome_da_Administradora'))) as nome_reduzido,
         
-        SUM(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_adesões_no_trimestre') AS INT64)) as adesoes,
+        SUM(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_adesões_no_trimestre') AS INT64)) as adesoes,
         
         (
-            SUM(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_consorciados_excluídos_contemplados') AS INT64)) + 
-            SUM(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_consorciados_excluídos_não_contemplados') AS INT64))
+            SUM(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_consorciados_excluídos_contemplados') AS INT64)) + 
+            SUM(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_consorciados_excluídos_não_contemplados') AS INT64))
         ) as total_dropouts,
 
         SUM(
-            SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_consorciados_ativos_contemplados_por_lance') AS INT64) +
-            SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_consorciados_ativos_contemplados_por_sorteio') AS INT64) +
-            SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_consorciados_ativos_não_contemplados') AS INT64)
+            SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_consorciados_ativos_contemplados_por_lance') AS INT64) +
+            SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_consorciados_ativos_contemplados_por_sorteio') AS INT64) +
+            SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_consorciados_ativos_não_contemplados') AS INT64)
         ) as total_active
 
-    FROM \`consorcio_data.dados_trimestrais_uf\`
-    GROUP BY cnpj_raiz
+    FROM \`consorcio_data.dados_trimestrais_uf\` t
+    LEFT JOIN LatestAdmins adm ON adm.cnpj_raiz = t.cnpj_raiz AND adm.rn = 1
+    GROUP BY t.cnpj_raiz
     HAVING total_active > 100 -- Noise filter
     ORDER BY total_active DESC
 `;
