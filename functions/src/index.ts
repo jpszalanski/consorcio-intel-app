@@ -457,7 +457,7 @@ export const getTrendData = functions.https.onCall(async (data, context) => {
                 ) * SAFE_CAST(REPLACE(REPLACE(JSON_VALUE(t.metricas_raw, '$.Valor_médio_do_bem'), '.', ''), ',', '.') AS FLOAT64)
             ) as total_volume
 
-        FROM \`consorcio_data.grupos_detalhados\` t
+        FROM \`consorcio_data.series_consolidadas\` t
         LEFT JOIN LatestSegments sg ON sg.codigo_segmento = t.codigo_segmento
         GROUP BY t.data_base, t.codigo_segmento
         ORDER BY t.data_base ASC
@@ -517,7 +517,7 @@ export const getAdministratorData = functions.https.onCall(async (data, context)
                 )
             ) as totalFeesWeighted
 
-        FROM \`consorcio_data.grupos_detalhados\` t
+        FROM \`consorcio_data.series_consolidadas\` t
         LEFT JOIN LatestAdmins adm ON adm.cnpj_raiz = t.cnpj_raiz AND adm.rn = 1
         GROUP BY t.cnpj_raiz
         ORDER BY totalBalance DESC
@@ -590,7 +590,7 @@ export const getAdministratorDetail = functions.https.onCall(async (data, contex
             
             SUM(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_excluídas') AS INT64)) as total_dropouts
 
-        FROM \`consorcio_data.grupos_detalhados\` t
+        FROM \`consorcio_data.series_consolidadas\` t
         LEFT JOIN LatestAdmins adm ON adm.cnpj_raiz = t.cnpj_raiz AND adm.rn = 1
         WHERE t.cnpj_raiz = @cnpj
         GROUP BY t.data_base, t.codigo_segmento
@@ -747,7 +747,7 @@ export const getDashboardData = functions.https.onCall(async (data, context) => 
         SELECT
             t.data_base,
             CAST(t.codigo_segmento AS STRING) as codigo_segmento,
-            COALESCE(sg.nome, ANY_VALUE(t.tipo)) as tipo,
+            COALESCE(sg.nome, ANY_VALUE(JSON_VALUE(t.metricas_raw, '$.Nome_do_segmento'))) as tipo,
             
             SUM(
                 SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) + 
@@ -772,8 +772,8 @@ export const getDashboardData = functions.https.onCall(async (data, context) => 
             
             SUM(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_quitadas') AS INT64)) as total_quitadas
 
-        FROM \`consorcio_data.grupos_detalhados\` t
-        LEFT JOIN LatestSegments sg ON sg.codigo_segmento = CAST(t.codigo_segmento AS INT64)
+        FROM \`consorcio_data.series_consolidadas\` t
+        LEFT JOIN LatestSegments sg ON sg.codigo_segmento = t.codigo_segmento
         GROUP BY t.data_base, t.codigo_segmento, sg.nome
         ORDER BY t.data_base ASC
     `;
