@@ -39,6 +39,12 @@ const SCHEMAS = {
         { name: 'data_base', type: 'STRING' },
         { name: 'metricas_raw', type: 'STRING' },
         { name: 'uploaded_at', type: 'TIMESTAMP' }
+    ],
+    'segmentos': [
+        { name: 'codigo_segmento', type: 'INTEGER' },
+        { name: 'nome', type: 'STRING' },
+        { name: 'data_base', type: 'STRING' },
+        { name: 'uploaded_at', type: 'TIMESTAMP' }
     ]
 };
 const ensureInfrastructure = async (tableId) => {
@@ -178,6 +184,25 @@ const mapAdministrators = (row) => {
         }
     };
 };
+const mapSegmentos = (row) => {
+    // Assuming file has Code and Name
+    const code = parseInt(String(findValue(row, ['Código_do_segmento', 'Codigo']) || '0').replace(/\D/g, ''));
+    // Usually 'Nome_do_segmento' or the description next to code
+    // In "Segmentos Consolidados", the segment name might be "Nome_do_segmento" or derived.
+    // Based on previous knowledge (or assumption to be safe/generic):
+    const nome = String(findValue(row, ['Nome_do_segmento', 'Descricao_do_segmento', 'Segmento']) || '');
+    if (!code || !nome)
+        return null;
+    const database = String(findValue(row, ['Data_base']) || '');
+    return {
+        table: 'segmentos',
+        data: {
+            codigo_segmento: code,
+            nome: nome,
+            data_base: database
+        }
+    };
+};
 // --- CLOUD FUNCTION ---
 exports.processFileUpload = functions.storage.object().onFinalize(async (object) => {
     var _a;
@@ -243,8 +268,13 @@ exports.processFileUpload = functions.storage.object().onFinalize(async (object)
         if (!detectedDate && row['Data_base'])
             detectedDate = row['Data_base'];
         let mapped = null;
-        if (importType === 'segments')
+        if (importType === 'segments') {
             mapped = mapConsolidatedSeries(row);
+            // Also try to map Segments table (Distinct list)
+            const segMapped = mapSegmentos(row);
+            if (segMapped)
+                rowsToInsert.push(segMapped);
+        }
         if (importType === 'real_estate')
             mapped = mapDetailedGroup(row, 'imoveis');
         if (importType === 'moveis')
@@ -364,27 +394,36 @@ exports.reprocessFile = functions.https.onCall(async (data, context) => {
 // ... (trend data)
 exports.getTrendData = functions.https.onCall(async (data, context) => {
     const query = `
+        WITH LatestSegments AS (
+            SELECT 
+                codigo_segmento, 
+                ANY_VALUE(nome) as nome 
+            FROM \`consorcio_data.segmentos\` 
+            GROUP BY codigo_segmento
+        )
         SELECT
-            data_base,
-            codigo_segmento,
+            t.data_base,
+            t.codigo_segmento,
+            ANY_VALUE(sg.nome) as nome_segmento,
             
             SUM(
-                SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) + 
-                IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
-                IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
+                SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) + 
+                IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
+                IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
             ) as total_quotas,
 
             SUM(
                 (
-                    SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) + 
-                    IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
-                    IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
-                ) * SAFE_CAST(REPLACE(REPLACE(JSON_VALUE(metricas_raw, '$.Valor_médio_do_bem'), '.', ''), ',', '.') AS FLOAT64)
+                    SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) + 
+                    IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
+                    IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
+                ) * SAFE_CAST(REPLACE(REPLACE(JSON_VALUE(t.metricas_raw, '$.Valor_médio_do_bem'), '.', ''), ',', '.') AS FLOAT64)
             ) as total_volume
 
-        FROM \`consorcio_data.grupos_detalhados\`
-        GROUP BY data_base, codigo_segmento
-        ORDER BY data_base ASC
+        FROM \`consorcio_data.grupos_detalhados\` t
+        LEFT JOIN LatestSegments sg ON sg.codigo_segmento = t.codigo_segmento
+        GROUP BY t.data_base, t.codigo_segmento
+        ORDER BY t.data_base ASC
     `;
     try {
         const [rows] = await bigquery.query({ query, location: LOCATION });
@@ -653,37 +692,45 @@ exports.getRegionalData = functions.https.onCall(async (data, context) => {
 });
 exports.getDashboardData = functions.https.onCall(async (data, context) => {
     const query = `
+        WITH LatestSegments AS (
+            SELECT 
+                codigo_segmento, 
+                ANY_VALUE(nome) as nome 
+            FROM \`consorcio_data.segmentos\` 
+            GROUP BY codigo_segmento
+        )
         SELECT
-            data_base,
-            CAST(codigo_segmento AS STRING) as codigo_segmento,
-            ANY_VALUE(tipo) as tipo,
+            t.data_base,
+            CAST(t.codigo_segmento AS STRING) as codigo_segmento,
+            COALESCE(sg.nome, ANY_VALUE(t.tipo)) as tipo,
             
             SUM(
-                SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) + 
-                IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
-                IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
+                SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) + 
+                IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
+                IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
             ) as total_active_quotas,
 
             SUM(
                 (
-                    SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) + 
-                    IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
-                    IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
-                ) * SAFE_CAST(REPLACE(REPLACE(JSON_VALUE(metricas_raw, '$.Valor_médio_do_bem'), '.', ''), ',', '.') AS FLOAT64)
+                    SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) + 
+                    IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
+                    IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
+                ) * SAFE_CAST(REPLACE(REPLACE(JSON_VALUE(t.metricas_raw, '$.Valor_médio_do_bem'), '.', ''), ',', '.') AS FLOAT64)
             ) as total_volume_estimated,
 
             SUM(
-                IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
-                IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
+                IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
+                IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
             ) as total_default_quotas,
 
-            SUM(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_excluídas') AS INT64)) as total_dropouts,
+            SUM(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_excluídas') AS INT64)) as total_dropouts,
             
-            SUM(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_quitadas') AS INT64)) as total_quitadas
+            SUM(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_quitadas') AS INT64)) as total_quitadas
 
-        FROM \`consorcio_data.grupos_detalhados\`
-        GROUP BY data_base, codigo_segmento
-        ORDER BY data_base ASC
+        FROM \`consorcio_data.grupos_detalhados\` t
+        LEFT JOIN LatestSegments sg ON sg.codigo_segmento = CAST(t.codigo_segmento AS INT64)
+        GROUP BY t.data_base, t.codigo_segmento, sg.nome
+        ORDER BY t.data_base ASC
     `;
     try {
         const [rows] = await bigquery.query({ query, location: LOCATION });
