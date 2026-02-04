@@ -196,7 +196,7 @@ export const processFileUpload = functions.storage.object().onFinalize(async (ob
     if (nameNorm.includes('imoveis')) importType = 'real_estate';
     else if (nameNorm.includes('moveis')) importType = 'movables';
     else if (nameNorm.includes('segmentos')) importType = 'segments';
-    else if (nameNorm.includes('dadosporuf')) importType = 'regional_uf';
+    else if (nameNorm.includes('dadosporuf') || nameNorm.includes('consorciosuf') || (nameNorm.includes('uf') && !nameNorm.includes('imoveis') && !nameNorm.includes('moveis'))) importType = 'regional_uf';
 
     // --- STATUS REPORTING ---
     const db = admin.firestore();
