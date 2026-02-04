@@ -25,10 +25,11 @@ const parseFileName = (fileName: string) => {
     // 3. Bens_Moveis_Grupos -> moveis
     // 4. Consorcios_UF -> regional_uf
 
-    const segmentsRegex = /^(\d{4})(\d{2})Segmentos_Consolidados/i;
-    const realEstateRegex = /^(\d{4})(\d{2})Bens_Imoveis_Grupos/i;
-    const moveisRegex = /^(\d{4})(\d{2})Bens_Moveis_Grupos/i;
-    const ufRegex = /^(\d{4})(\d{2})Consorcios_UF/i;
+    const segmentsRegex = /^(\d{4})[-_]?(\d{2})[-_]?Segmentos_Consolidados/i;
+    const realEstateRegex = /^(\d{4})[-_]?(\d{2})[-_]?Bens_Imoveis_Grupos/i;
+    const moveisRegex = /^(\d{4})[-_]?(\d{2})[-_]?Bens_Moveis_Grupos/i;
+    // Matches: 202509Consorcios_UF, 202403UF, 2024-03-UF, etc.
+    const ufRegex = /^(\d{4})[-_]?(\d{2})[-_]?(?:Consorcios_)?UF/i;
 
     let fileType = 'UNKNOWN';
     let referenceDate = null;

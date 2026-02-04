@@ -42,7 +42,7 @@ export const DataImport: React.FC = () => {
     if (name.includes('moveis') && !name.includes('imoveis')) return 'movables';
     if (name.includes('veiculos')) return 'movables';
     if (name.includes('segmentos')) return 'segments';
-    if (name.includes('dadosporuf') || h.includes('uf')) return 'regional_uf';
+    if (name.includes('dadosporuf') || name.includes('consorcios_uf') || h.includes('uf')) return 'regional_uf';
 
     // Fallback: Column based
     if (h.some(x => x.includes('valormedio') || x.includes('vlbem'))) return 'movables';
