@@ -20,6 +20,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isMob
     { id: 'regional', label: 'Análise Regional', icon: Map },
     { id: 'import', label: 'Importar Dados', icon: Database },
     { id: 'file_control', label: 'Controle Arquivos', icon: FileText },
+    { id: 'settings', label: 'Configurações AI', icon: Menu }, // Using Menu icon for now or MessageSquare if imported
   ];
 
   return (

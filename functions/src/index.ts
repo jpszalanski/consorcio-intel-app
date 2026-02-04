@@ -58,6 +58,30 @@ admin.initializeApp();
 
 // --- SHARED LOGIC PORTED FROM dataStore.ts ---
 
+const normalizeToCompetence = (dateStr: string): string => {
+    if (!dateStr) return 'UNKNOWN';
+    // Remove quotes
+    const clean = dateStr.replace(/["']/g, '').trim();
+
+    // 1. Try YYYY-MM or YYYYMM format
+    // Matches 2025-01, 202501
+    const yyyymm = clean.match(/^(\d{4})[-/]?(\d{2})/);
+    if (yyyymm) {
+        return `${yyyymm[1]}-${yyyymm[2]}`;
+    }
+
+    // 2. Try DD/MM/YYYY or MM/YYYY
+    // Matches 31/01/2025 or 01/2025
+    const ddmmyyyy = clean.match(/(\d{2})?[/]?(\d{2})\/(\d{4})/);
+    if (ddmmyyyy) {
+        const year = ddmmyyyy[3];
+        const month = ddmmyyyy[2];
+        return `${year}-${month}`;
+    }
+
+    return 'UNKNOWN';
+};
+
 const normalizeKey = (str: string) => {
     if (!str) return '';
     return str
@@ -243,10 +267,23 @@ export const processFileUpload = functions.storage.object().onFinalize(async (ob
         }
 
         // 2. Success Report
+        // Fetch current doc to check if we already have a valid Reference Date (from Filename)
+        const currentDoc = await controlRef.get();
+        const currentData = currentDoc.data();
+
+        let finalDate = normalizeToCompetence(detectedDate) || 'UNKNOWN';
+
+        // If the current record already has a valid YYYY-MM date (from the frontend parsing the filename),
+        // we should PRIORITIZE it over the CSV content date to avoid moving the file to a different month unexpectedly.
+        if (currentData && currentData.referenceDate && currentData.referenceDate.match(/^\d{4}-\d{2}$/)) {
+            console.log(`Keeping existing Reference Date from Filename: ${currentData.referenceDate}`);
+            finalDate = currentData.referenceDate;
+        }
+
         await controlRef.update({
             status: 'SUCCESS',
             rowsProcessed: rowsToInsert.length,
-            referenceDate: detectedDate || 'UNKNOWN',
+            referenceDate: finalDate,
             bigQueryTable: rowsToInsert[0]?.table || 'UNKNOWN'
         });
 
@@ -314,6 +351,281 @@ export const reprocessFile = functions.https.onCall(async (data, context) => {
         return { success: true, message: 'Reprocessing triggered' };
     } catch (error: any) {
         console.error("Reprocess Error", error);
+        throw new functions.https.HttpsError('internal', error.message);
+    }
+});
+
+// ... (trend data)
+
+export const getTrendData = functions.https.onCall(async (data, context) => {
+    const query = `
+        SELECT
+            data_base,
+            codigo_segmento,
+            
+            SUM(
+                SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) + 
+                IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
+                IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
+            ) as total_quotas,
+
+            SUM(
+                (
+                    SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) + 
+                    IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
+                    IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
+                ) * SAFE_CAST(REPLACE(REPLACE(JSON_VALUE(metricas_raw, '$.Valor_médio_do_bem'), '.', ''), ',', '.') AS FLOAT64)
+            ) as total_volume
+
+        FROM \`consorcio_data.grupos_detalhados\`
+        GROUP BY data_base, codigo_segmento
+        ORDER BY data_base ASC
+    `;
+
+    try {
+        const [rows] = await bigquery.query({ query, location: LOCATION });
+        return { data: rows };
+    } catch (error: any) {
+        console.error("Trend Query Error", error);
+        throw new functions.https.HttpsError('internal', error.message);
+    }
+});
+
+export const getAdministratorData = functions.https.onCall(async (data, context) => {
+    const query = `
+        SELECT
+            cnpj_raiz,
+            ANY_VALUE(JSON_VALUE(metricas_raw, '$.Nome_da_Administradora')) as nome_reduzido,
+            
+            -- Volume
+            SUM(
+                (
+                    SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) + 
+                    IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
+                    IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
+                ) * SAFE_CAST(REPLACE(REPLACE(JSON_VALUE(metricas_raw, '$.Valor_médio_do_bem'), '.', ''), ',', '.') AS FLOAT64)
+            ) as totalBalance,
+
+            -- Active Quotas
+            SUM(
+                SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) + 
+                IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
+                IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
+            ) as totalActive,
+            
+            -- Defaults (Inadimplencia)
+            SUM(
+                IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
+                IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
+            ) as totalDefaults,
+
+            -- Weighted Fees (Approx) - Sum(Tax * Active) / Sum(Active)
+            SUM(
+               SAFE_CAST(REPLACE(REPLACE(JSON_VALUE(metricas_raw, '$.Taxa_de_administração'), '.', ''), ',', '.') AS FLOAT64) * 
+               (
+                    SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) + 
+                    IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
+                    IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
+               )
+            ) as totalFeesWeighted
+
+        FROM \`consorcio_data.grupos_detalhados\`
+        GROUP BY cnpj_raiz
+        ORDER BY totalBalance DESC
+    `;
+
+    try {
+        const [rows] = await bigquery.query({ query, location: LOCATION });
+        return { data: rows };
+    } catch (error: any) {
+        console.error("Admin Query Error", error);
+        throw new functions.https.HttpsError('internal', error.message);
+    }
+});
+
+
+export const getAdministratorDetail = functions.https.onCall(async (data, context) => {
+    const { cnpj } = data;
+    if (!cnpj) throw new functions.https.HttpsError('invalid-argument', 'CNPJ required');
+
+    const query = `
+        SELECT
+            data_base,
+            codigo_segmento,
+            ANY_VALUE(JSON_VALUE(metricas_raw, '$.Nome_da_Administradora')) as nome_reduzido,
+            
+             SUM(
+                (
+                    SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) + 
+                    IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
+                    IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
+                ) * SAFE_CAST(REPLACE(REPLACE(JSON_VALUE(metricas_raw, '$.Valor_médio_do_bem'), '.', ''), ',', '.') AS FLOAT64)
+            ) as total_volume,
+
+            SUM(
+                SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) + 
+                IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
+                IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
+            ) as total_active,
+
+             -- KPIs for Average (Fee, Term)
+            SUM(
+               SAFE_CAST(REPLACE(REPLACE(JSON_VALUE(metricas_raw, '$.Taxa_de_administração'), '.', ''), ',', '.') AS FLOAT64) * 
+               (
+                    SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) + 
+                    IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
+                    IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
+               )
+            ) as total_fees_weighted,
+
+             SUM(
+               SAFE_CAST(JSON_VALUE(metricas_raw, '$.Prazo_do_grupo_em_meses') AS INT64) * 
+               (
+                    SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) + 
+                    IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
+                    IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
+               )
+            ) as total_term_weighted,
+
+            SUM(
+                IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
+                IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
+            ) as total_defaults,
+            
+            SUM(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_excluídas') AS INT64)) as total_dropouts
+
+        FROM \`consorcio_data.grupos_detalhados\`
+        WHERE cnpj_raiz = @cnpj
+        GROUP BY data_base, codigo_segmento
+        ORDER BY data_base ASC
+    `;
+
+    try {
+        const [rows] = await bigquery.query({
+            query,
+            location: LOCATION,
+            params: { cnpj }
+        });
+        return { data: rows };
+    } catch (error: any) {
+        console.error("Admin Detail Query Error", error);
+        throw new functions.https.HttpsError('internal', error.message);
+    }
+});
+
+export const getOperationalData = functions.https.onCall(async (data, context) => {
+    const { mode, cnpj } = data;
+    // mode: 'market' (all admins aggregated) or 'detail' (specific admin by UF)
+
+    if (mode === 'detail' && !cnpj) {
+        throw new functions.https.HttpsError('invalid-argument', 'CNPJ required for detail mode');
+    }
+
+    let query = '';
+    const params: any = {};
+
+    if (mode === 'detail') {
+        query = `
+    SELECT
+        uf,
+        -- Flow (Quarter)
+        SUM(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_adesões_no_trimestre') AS INT64)) as adesoes,
+        SUM(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_consorciados_excluídos_contemplados') AS INT64)) as dropouts_contemplated, 
+
+        (
+            SUM(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_consorciados_excluídos_contemplados') AS INT64)) + 
+            SUM(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_consorciados_excluídos_não_contemplados') AS INT64))
+        ) as total_dropouts,
+
+        -- Stock (Active)
+        SUM(
+            SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_consorciados_ativos_contemplados_por_lance') AS INT64) +
+            SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_consorciados_ativos_contemplados_por_sorteio') AS INT64) +
+            SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_consorciados_ativos_não_contemplados') AS INT64)
+        ) as total_active,
+
+        -- Mix
+        SUM(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_consorciados_ativos_contemplados_por_lance') AS INT64)) as stock_bid,
+        SUM(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_consorciados_ativos_contemplados_por_sorteio') AS INT64)) as stock_lottery
+
+    FROM \`consorcio_data.dados_trimestrais_uf\`
+    WHERE cnpj_raiz = @cnpj
+    GROUP BY uf
+    ORDER BY adesoes DESC
+`;
+        params.cnpj = cnpj;
+    } else {
+        // Market Overview (Scatter) - Aggregated by Admin
+        query = `
+    SELECT
+        cnpj_raiz,
+        ANY_VALUE(JSON_VALUE(metricas_raw, '$.Nome_da_Administradora')) as nome_reduzido,
+        
+        SUM(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_adesões_no_trimestre') AS INT64)) as adesoes,
+        
+        (
+            SUM(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_consorciados_excluídos_contemplados') AS INT64)) + 
+            SUM(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_consorciados_excluídos_não_contemplados') AS INT64))
+        ) as total_dropouts,
+
+        SUM(
+            SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_consorciados_ativos_contemplados_por_lance') AS INT64) +
+            SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_consorciados_ativos_contemplados_por_sorteio') AS INT64) +
+            SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_consorciados_ativos_não_contemplados') AS INT64)
+        ) as total_active
+
+    FROM \`consorcio_data.dados_trimestrais_uf\`
+    GROUP BY cnpj_raiz
+    HAVING total_active > 100 -- Noise filter
+    ORDER BY total_active DESC
+`;
+    }
+
+    try {
+        const [rows] = await bigquery.query({ query, location: LOCATION, params });
+        return { data: rows };
+    } catch (error: any) {
+        console.error("Operational Query Error", error);
+        throw new functions.https.HttpsError('internal', error.message);
+    }
+});
+
+export const getRegionalData = functions.https.onCall(async (data, context) => {
+    const query = `
+        SELECT
+            uf,
+            COUNT(*) as records_count,
+            
+            -- Acumulados (Stock)
+            SUM(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_consorciados_ativos_contemplados_por_lance') AS INT64)) as activeContemplatedBid,
+            SUM(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_consorciados_ativos_contemplados_por_sorteio') AS INT64)) as activeContemplatedLottery,
+            SUM(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_consorciados_ativos_não_contemplados') AS INT64)) as activeNonContemplated,
+            
+            -- Excluded (Stock)
+            SUM(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_consorciados_excluídos_contemplados') AS INT64)) as dropoutContemplated,
+            SUM(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_consorciados_excluídos_não_contemplados') AS INT64)) as dropoutNonContemplated,
+            
+            -- Flow (Quarter)
+            SUM(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_adesões_no_trimestre') AS INT64)) as newAdhesionsQuarter,
+            
+            -- Total Active
+            SUM(
+                SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_consorciados_ativos_contemplados_por_lance') AS INT64) +
+                SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_consorciados_ativos_contemplados_por_sorteio') AS INT64) +
+                SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_consorciados_ativos_não_contemplados') AS INT64)
+            ) as totalActive
+
+        FROM \`consorcio_data.dados_trimestrais_uf\`
+        WHERE uf IS NOT NULL AND uf != ''
+        GROUP BY uf
+        ORDER BY totalActive DESC
+    `;
+
+    try {
+        const [rows] = await bigquery.query({ query, location: LOCATION });
+        return { data: rows };
+    } catch (error: any) {
+        console.error("Regional Query Error", error);
         throw new functions.https.HttpsError('internal', error.message);
     }
 });

@@ -1,116 +1,103 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { predictDemand } from '../../services/geminiService';
 import { BacenSegment, AppDataStore } from '../../types';
-import { BrainCircuit, TrendingUp, Filter, DollarSign, Users, BarChart2 } from 'lucide-react';
+import { BrainCircuit, TrendingUp, Filter, DollarSign, Users, BarChart2, Loader2 } from 'lucide-react';
 import { PeriodSelector, PeriodOption } from '../common/PeriodSelector';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 
-interface Props {
-  data: AppDataStore;
-}
+
 
 type MetricType = 'quotas' | 'volume' | 'ticket';
 
 const SEGMENT_COLORS: Record<string, string> = {
-  [BacenSegment.IMOVEIS]: '#2563eb',
-  [BacenSegment.VEICULOS_LEVES]: '#10b981',
-  [BacenSegment.VEICULOS_PESADOS]: '#f59e0b',
-  [BacenSegment.MOTOCICLETAS]: '#ef4444',
-  [BacenSegment.SERVICOS]: '#8b5cf6',
-  [BacenSegment.OUTROS_BENS]: '#64748b'
+  '1': '#2563eb', // Imoveis
+  '2': '#f59e0b', // Pesados
+  '3': '#10b981', // Leves
+  '4': '#ef4444', // Motos
+  '6': '#8b5cf6', // Servicos
+  'Outros': '#64748b'
 };
 
-export const TrendAnalysis: React.FC<Props> = ({ data }) => {
+const getSegName = (code: string | number): string => {
+  const c = String(code);
+  if (c === '1') return `1 - ${String(BacenSegment.IMOVEIS)}`;
+  if (c === '2') return `2 - ${String(BacenSegment.VEICULOS_PESADOS)}`;
+  if (c === '3') return `3 - ${String(BacenSegment.VEICULOS_LEVES)}`;
+  if (c === '4') return `4 - ${String(BacenSegment.MOTOCICLETAS)}`;
+  if (c === '6') return `6 - ${String(BacenSegment.SERVICOS)}`;
+  return `${c} - Outros`;
+};
+
+interface TrendRow {
+  data_base: string;
+  codigo_segmento: number;
+  total_quotas: number | string;
+  total_volume: number | string;
+}
+
+export const TrendAnalysis: React.FC = () => {
+  const [rawData, setRawData] = useState<TrendRow[]>([]);
+  const [loadingData, setLoadingData] = useState(true);
+
   const [selectedSegment, setSelectedSegment] = useState<string>('');
   const [prediction, setPrediction] = useState<{ prediction: string; rationale: string } | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loadingAi, setLoadingAi] = useState(false);
   const [period, setPeriod] = useState<PeriodOption>('all');
   const [metricType, setMetricType] = useState<MetricType>('volume');
 
-  // Aggregation Helper: Unify all sources into a timeline
-  const pivotData = useMemo(() => {
-    // Determine which field to use based on metric type
-    const mapItem = (item: any, source: 'detailed' | 'consolidated') => {
-      let val = 0;
-      // In new structure:
-      // DetailedGroup: metricas_cotas, caracteristicas
-      // ConsolidatedSeries: metricas_brutas, indicadores_calculados
-
-      if (metricType === 'volume' && source === 'detailed') {
-        const avgVal = item.caracteristicas?.valor_medio_do_bem || 0;
-        // Formula for Active Volume:
-        const active = (item.metricas_cotas?.ativas_em_dia || 0) +
-          (item.metricas_cotas?.contempladas_inadimplentes || 0) +
-          (item.metricas_cotas?.nao_contempladas_inadimplentes || 0);
-        val = active * avgVal;
-      } else if (metricType === 'volume' && source === 'consolidated') {
-        // Consolidated usually doesn't have "Valor Médio do Bem" in spec 3.1 directly exposed for calc?
-        // Actually spec 1.1 doesn't have it. So consolidated segments don't contribute to Volume Trend unless we have it.
-        // We will skip consolidated for Volume unless we find a way.
-        val = 0;
-      } else if (metricType === 'quotas') {
-        if (source === 'detailed') {
-          val = (item.metricas_cotas?.ativas_em_dia || 0) +
-            (item.metricas_cotas?.contempladas_inadimplentes || 0) +
-            (item.metricas_cotas?.nao_contempladas_inadimplentes || 0);
-        } else {
-          val = item.indicadores_calculados?.cotas_ativas_total || 0;
-        }
-      } else {
-        // Ticket Médio
-        if (source === 'detailed') val = item.caracteristicas?.valor_medio_do_bem || 0;
-        else val = 0; // Not available in consolidated
+  // Fetch Data from BigQuery
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const functions = getFunctions();
+        const getTrend = httpsCallable<unknown, { data: TrendRow[] }>(functions, 'getTrendData');
+        const result = await getTrend();
+        setRawData(result.data.data);
+      } catch (error) {
+        console.error("Error fetching trend data", error);
+      } finally {
+        setLoadingData(false);
       }
-
-      return {
-        period: item.data_base,
-        segment: String(item.codigo_segmento),
-        value: val
-      };
     };
+    fetchData();
+  }, []);
 
-    const allPoints = [
-      ...data.consolidated.map(s => mapItem(s, 'consolidated')),
-      ...data.detailedGroups.map(s => mapItem(s, 'detailed'))
-    ].filter(p => p.value > 0); // Remove zeros to clean chart
-
-    if (allPoints.length === 0) return [];
+  // Aggregation Logic (Pivot for Chart)
+  const pivotData = useMemo(() => {
+    if (!rawData.length) return [];
 
     const groupedByPeriod = new Map<string, any>();
 
-    allPoints.forEach(item => {
-      const key = item.period;
-      if (!groupedByPeriod.has(key)) {
-        groupedByPeriod.set(key, { period: key });
+    rawData.forEach(row => {
+      const period = row.data_base;
+      if (!groupedByPeriod.has(period)) {
+        groupedByPeriod.set(period, { period });
       }
-      const entry = groupedByPeriod.get(key);
-      const segKey = item.segment || 'Outros';
+      const entry = groupedByPeriod.get(period);
+      const segName = getSegName(row.codigo_segmento); // Standardized Name
 
-      // Accumulate or Average
-      if (metricType === 'ticket') {
-        // Weighted average accumulation logic is hard here without count, sticking to max or simple avg for trend visual
-        // Better: Keep accumulated sum and count, then divide at end. 
-        // For simplicity in this trend view: we just take average of observed values for that segment in that month
-        const currentSum = entry[`${segKey}_sum`] || 0;
-        const currentCount = entry[`${segKey}_count`] || 0;
-        entry[`${segKey}_sum`] = currentSum + item.value;
-        entry[`${segKey}_count`] = currentCount + 1;
-        entry[segKey] = entry[`${segKey}_sum`] / entry[`${segKey}_count`];
-      } else {
-        entry[segKey] = (entry[segKey] || 0) + item.value;
-      }
+      // Select Value based on Metric
+      let val = 0;
+      const vol = Number(row.total_volume) || 0;
+      const qtd = Number(row.total_quotas) || 0;
+
+      if (metricType === 'volume') val = vol;
+      else if (metricType === 'quotas') val = qtd;
+      else if (metricType === 'ticket') val = qtd > 0 ? vol / qtd : 0;
+
+      entry[segName] = val;
     });
 
     return Array.from(groupedByPeriod.values()).sort((a, b) => a.period.localeCompare(b.period));
-  }, [data, metricType]);
+  }, [rawData, metricType]);
 
   const availableSegments = useMemo(() => {
     const segs = new Set<string>();
-    data.consolidated.forEach(s => segs.add(String(s.codigo_segmento)));
-    data.detailedGroups.forEach(s => segs.add(String(s.codigo_segmento)));
-    return Array.from(segs);
-  }, [data]);
+    rawData.forEach(r => segs.add(getSegName(r.codigo_segmento)));
+    return Array.from(segs).sort();
+  }, [rawData]);
 
   const filteredData = useMemo(() => {
     let result = pivotData;
@@ -129,11 +116,21 @@ export const TrendAnalysis: React.FC<Props> = ({ data }) => {
 
   const handlePredict = async () => {
     if (!selectedSegment) return;
-    setLoading(true);
-    const result = await predictDemand(selectedSegment as BacenSegment, aiContextData);
+    setLoadingAi(true);
+    // Extract pure segment name for AI context if needed, or pass full string
+    const result = await predictDemand(selectedSegment as any, aiContextData);
     setPrediction(result);
-    setLoading(false);
+    setLoadingAi(false);
   };
+
+  if (loadingData) {
+    return (
+      <div className="flex flex-col items-center justify-center h-[60vh] text-slate-400">
+        <Loader2 className="animate-spin mb-4" size={48} />
+        <p>Carregando tendências (BigQuery)...</p>
+      </div>
+    );
+  }
 
   if (pivotData.length === 0) {
     return <div className="p-8 text-center text-slate-400">Dados históricos insuficientes para análise de tendência.</div>;
@@ -215,17 +212,21 @@ export const TrendAnalysis: React.FC<Props> = ({ data }) => {
                 formatter={(val: number) => metricType !== 'quotas' ? `R$ ${val.toLocaleString()}` : val.toLocaleString()}
               />
               <Legend />
-              {availableSegments.map((seg, idx) => (
-                <Line
-                  key={seg}
-                  name={seg}
-                  type="monotone"
-                  dataKey={seg}
-                  stroke={SEGMENT_COLORS[seg] || '#94a3b8'}
-                  strokeWidth={3}
-                  dot={{ r: 4 }}
-                />
-              ))}
+              {availableSegments.map((seg, idx) => {
+                // Extract code from "1 - Imóveis" -> "1"
+                const code = seg.split(' - ')[0];
+                return (
+                  <Line
+                    key={seg}
+                    name={seg}
+                    type="monotone"
+                    dataKey={seg}
+                    stroke={SEGMENT_COLORS[code] || '#94a3b8'}
+                    strokeWidth={3}
+                    dot={{ r: 4 }}
+                  />
+                );
+              })}
             </LineChart>
           </ResponsiveContainer>
         </div>
@@ -252,10 +253,10 @@ export const TrendAnalysis: React.FC<Props> = ({ data }) => {
             </p>
             <button
               onClick={handlePredict}
-              disabled={loading}
+              disabled={loadingAi}
               className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2.5 rounded-lg font-medium transition-colors disabled:opacity-50 shadow-lg shadow-indigo-900/20"
             >
-              {loading ? (
+              {loadingAi ? (
                 <>Analisando série histórica...</>
               ) : (
                 <>

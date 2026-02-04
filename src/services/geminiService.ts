@@ -1,36 +1,22 @@
 
 import { GoogleGenAI } from "@google/genai";
 import { BacenSegment } from "../types";
+import { getFirestore, doc, getDoc } from "firebase/firestore";
 
-export interface AIAnalysisResult {
-  summary: string;
-  points: {
-    title: string;
-    content: string;
-    type: 'positive' | 'negative' | 'neutral' | 'info';
-  }[];
-  recommendation: string;
-  sources?: { uri: string; title: string }[];
-}
-
-export const generateMarketInsight = async (
-  context: string,
-  data: any
-): Promise<AIAnalysisResult> => {
-  try {
-    const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
-
-    const prompt = `
+// Default Prompts (Fallbacks & Seeding)
+export const initialPrompts = {
+  market_insight: `
       Você é um especialista em análise regulatória e mercadológica do Banco Central do Brasil (BACEN) para o setor de consórcios.
       Analise os dados fornecidos considerando as Circulares (ex: Circular 3.679/14) e os documentos padrões (2080, 4010).
       
-      Contexto: ${context}
-      Dados (JSON): ${JSON.stringify(data)}
+      Contexto: {{context}}
+      Dados (JSON): {{data}}
 
       Foque sua análise nos seguintes pontos CRÍTICOS (Items de Análise Obrigatórios):
       1. Variação de adesões vs. desistências (Churn da carteira).
       2. Correlação com Selic e inflação (IPCA) para os Segmentos de atuação.
       3. Oportunidades ou riscos regionais baseados nos dados.
+      4. COMPARATIVO DE MERCADO: Compare os indicadores da administradora com as Médias de Mercado fornecidas no contexto (Ex: Inadimplência Adm vs Inadimplência Mercado, Taxa Adm vs Taxa Mercado). Destaque se está acima ou abaixo da média.
 
       Use o Google Search para validar o cenário macroeconômico atual (Selic, IPCA).
       
@@ -48,7 +34,78 @@ export const generateMarketInsight = async (
         ],
         "recommendation": "Uma ação estratégica recomendada baseada na análise."
       }
-    `;
+  `,
+  demand_prediction: `
+      Analise a série histórica do segmento oficial BACEN: {{segment}}.
+      Projete a demanda para os próximos 12 meses.
+      
+      Considere:
+      - Sazonalidade típica deste segmento.
+      - Impacto da política monetária atual no crédito vs. consórcio.
+      - Dados Históricos: {{historicalData}}
+      
+      Retorne estritamente um JSON no formato:
+      {
+        "prediction": "Frase curta da tendência (ex: Crescimento Moderado em Veículos Pesados)",
+        "rationale": "Explicação técnica baseada em fundamentos econômicos."
+      }
+  `
+};
+
+export interface AIAnalysisResult {
+  summary: string;
+  points: {
+    title: string;
+    content: string;
+    type: 'positive' | 'negative' | 'neutral' | 'info';
+  }[];
+  recommendation: string;
+  sources?: { uri: string; title: string }[];
+}
+
+// Helper: Fetch Prompt from Firestore or use Default
+const getPromptTemplate = async (templateId: keyof typeof initialPrompts, variables: Record<string, any>) => {
+  try {
+    const db = getFirestore();
+    const docRef = doc(db, 'prompt_templates', templateId);
+    const docSnap = await getDoc(docRef);
+
+    let template = initialPrompts[templateId];
+    if (docSnap.exists() && docSnap.data().template) {
+      template = docSnap.data().template;
+    }
+
+    // Replace Variables
+    let populatedInfo = template;
+    Object.entries(variables).forEach(([key, value]) => {
+      const valStr = typeof value === 'object' ? JSON.stringify(value) : String(value);
+      populatedInfo = populatedInfo.replace(new RegExp(`{{${key}}}`, 'g'), valStr);
+    });
+
+    return populatedInfo;
+  } catch (error) {
+    console.warn(`Failed to fetch prompt template ${templateId}, using fallback.`, error);
+    // Fallback logic duplicated for safety
+    let populatedInfo = initialPrompts[templateId];
+    Object.entries(variables).forEach(([key, value]) => {
+      const valStr = typeof value === 'object' ? JSON.stringify(value) : String(value);
+      populatedInfo = populatedInfo.replace(new RegExp(`{{${key}}}`, 'g'), valStr);
+    });
+    return populatedInfo;
+  }
+};
+
+export const generateMarketInsight = async (
+  context: string,
+  data: any
+): Promise<AIAnalysisResult> => {
+  try {
+    const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
+
+    const prompt = await getPromptTemplate('market_insight', {
+      context,
+      data
+    });
 
     // CRITICAL: MODEL FIXED BY USER ORDER. DO NOT CHANGE WITHOUT EXPLICIT PERMISSION.
     const response = await ai.models.generateContent({
@@ -94,24 +151,12 @@ export const predictDemand = async (
   historicalData: any[]
 ): Promise<{ prediction: string; rationale: string }> => {
   try {
-    // Inicialização do cliente Gemini seguindo as diretrizes oficiais de segurança e SDK
     const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
 
-    const prompt = `
-      Analise a série histórica do segmento oficial BACEN: ${segment}.
-      Projete a demanda para os próximos 12 meses.
-      
-      Considere:
-      - Sazonalidade típica deste segmento.
-      - Impacto da política monetária atual no crédito vs. consórcio.
-      - Dados Históricos: ${JSON.stringify(historicalData.slice(-8))}
-      
-      Retorne estritamente um JSON no formato:
-      {
-        "prediction": "Frase curta da tendência (ex: Crescimento Moderado em Veículos Pesados)",
-        "rationale": "Explicação técnica baseada em fundamentos econômicos."
-      }
-    `;
+    const prompt = await getPromptTemplate('demand_prediction', {
+      segment,
+      historicalData: JSON.stringify(historicalData.slice(-8))
+    });
 
     // CRITICAL: MODEL FIXED BY USER ORDER. DO NOT CHANGE WITHOUT EXPLICIT PERMISSION.
     const response = await ai.models.generateContent({

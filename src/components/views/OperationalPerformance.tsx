@@ -1,125 +1,143 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { AppDataStore } from '../../types';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   ScatterChart, Scatter, ZAxis, Legend, Cell, PieChart, Pie
 } from 'recharts';
-import { Activity, ArrowRightLeft, TrendingDown, Search, Scale } from 'lucide-react';
+import { Activity, ArrowRightLeft, TrendingDown, Search, Scale, Loader2 } from 'lucide-react';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 
-interface Props {
-  data: AppDataStore;
+
+
+interface MarketScatterRow {
+  cnpj_raiz: string;
+  nome_reduzido: string;
+  adesoes: number | string;
+  total_dropouts: number | string;
+  total_active: number | string;
 }
 
-export const OperationalPerformance: React.FC<Props> = ({ data }) => {
+interface AdminDetailRow {
+  uf: string;
+  adesoes: number | string;
+  dropouts_contemplated: number | string;
+  total_dropouts: number | string;
+  total_active: number | string;
+  stock_bid: number | string;
+  stock_lottery: number | string;
+}
+
+export const OperationalPerformance: React.FC = () => {
   const [selectedAdminId, setSelectedAdminId] = useState<string>('');
 
-  // Helper to get admin name
-  const getAdminName = (cnpj: string) => {
-    const admin = data.administrators.find(a => a.cnpj_raiz === cnpj);
-    return admin?.nome_reduzido || admin?.cnpj_raiz || cnpj;
-  };
+  const [scatterData, setScatterData] = useState<MarketScatterRow[]>([]);
+  const [loadingScatter, setLoadingScatter] = useState(true);
 
-  // Lista única de administradoras que possuem dados operacionais (Quarterly/UF Data)
-  const validAdmins = useMemo(() => {
-    const adminsWithData = new Set(data.quarterly.map(r => r.cnpj_raiz));
-    return data.administrators
-      .filter(a => adminsWithData.has(a.cnpj_raiz))
-      .sort((a, b) => (a.nome_reduzido || '').localeCompare(b.nome_reduzido || ''));
-  }, [data]);
+  const [detailRows, setDetailRows] = useState<AdminDetailRow[]>([]);
+  const [loadingDetail, setLoadingDetail] = useState(false);
 
-  // Cálculo de Métricas de Mercado (Scatter Plot)
-  const marketScatterData = useMemo(() => {
-    const adminMap = new Map();
-
-    data.quarterly.forEach(ufData => {
-      const cnpj = ufData.cnpj_raiz;
-      const name = getAdminName(cnpj);
-
-      if (!adminMap.has(cnpj)) {
-        adminMap.set(cnpj, {
-          name: name,
-          adhesions: 0,
-          dropouts: 0,
-          totalActive: 0
-        });
+  // 1. Fetch Market Overview (Scatter)
+  useEffect(() => {
+    const fetchMarket = async () => {
+      try {
+        const functions = getFunctions();
+        const getOps = httpsCallable<{ mode: string }, { data: MarketScatterRow[] }>(functions, 'getOperationalData');
+        const result = await getOps({ mode: 'market' });
+        setScatterData(result.data.data);
+      } catch (error) {
+        console.error("Error fetching market ops", error);
+      } finally {
+        setLoadingScatter(false);
       }
-      const curr = adminMap.get(cnpj);
-      // Mapping: 
-      // Adhesions -> trimestre.adesoes
-      // Dropouts -> Use trimestre.excluidos_contemplados (Proxy for quarter flow) or acumulados logic?
-      // Using 'totais.excluidos_contemplados' from RegionalAnalysis logic which is mapped from Source? 
-      // Actually RegionalAnalysis uses `item.totais.excluidos_contemplados`.
-      curr.adhesions += (ufData.trimestre.adesoes || 0);
-      curr.dropouts += (ufData.trimestre.excluidos_contemplados || 0); // Note: Only counts contemplated exclusions in quarter
-      curr.totalActive += (ufData.totais.ativos_total || 0);
+    };
+    fetchMarket();
+  }, []);
+
+  // 2. Fetch Detail
+  useEffect(() => {
+    if (!selectedAdminId) return;
+    const fetchDetail = async () => {
+      setLoadingDetail(true);
+      try {
+        const functions = getFunctions();
+        const getOps = httpsCallable<{ mode: string; cnpj: string }, { data: AdminDetailRow[] }>(functions, 'getOperationalData');
+        const result = await getOps({ mode: 'detail', cnpj: selectedAdminId });
+        setDetailRows(result.data.data);
+      } catch (error) {
+        console.error("Error fetching detail ops", error);
+      } finally {
+        setLoadingDetail(false);
+      }
+    };
+    fetchDetail();
+  }, [selectedAdminId]);
+
+  // Transform Scatter Data for Chart
+  const marketScatterChartData = useMemo(() => {
+    return scatterData.map(d => {
+      const active = Number(d.total_active) || 0;
+      const adesoes = Number(d.adesoes) || 0;
+      const dropouts = Number(d.total_dropouts) || 0;
+
+      return {
+        name: d.nome_reduzido || 'Unknown',
+        cnpj: d.cnpj_raiz,
+        size: active,
+        churnRate: active > 0 ? (dropouts / active) * 100 : 0,
+        growthRate: active > 0 ? (adesoes / active) * 100 : 0,
+      };
     });
+  }, [scatterData]);
 
-    return Array.from(adminMap.values())
-      .filter(a => a.totalActive > 500) // Filtro de relevância
-      .map(a => ({
-        name: a.name,
-        churnRate: a.totalActive > 0 ? (a.dropouts / a.totalActive) * 100 : 0,
-        growthRate: a.totalActive > 0 ? (a.adhesions / a.totalActive) * 100 : 0,
-        replacementRatio: a.dropouts > 0 ? a.adhesions / a.dropouts : 0,
-        size: a.totalActive
-      }));
-  }, [data]);
-
-  // Métricas da Administradora Selecionada
+  // Aggregate Detail Metrics
   const selectedMetrics = useMemo(() => {
-    if (!selectedAdminId) return null;
-    const admin = data.administrators.find(a => a.cnpj_raiz === selectedAdminId); // use cnpj_raiz
-    if (!admin) return null;
+    if (!selectedAdminId || detailRows.length === 0) return null;
 
-    const regionalData = data.quarterly.filter(r => r.cnpj_raiz === admin.cnpj_raiz);
+    let totalAdhesions = 0;
+    let totalDropouts = 0;
+    let totalActive = 0;
+    let sumBid = 0;
+    let sumLottery = 0;
 
-    const totalAdhesions = regionalData.reduce((acc, curr) => acc + (curr.trimestre.adesoes || 0), 0);
-    const totalDropouts = regionalData.reduce((acc, curr) => acc + (curr.trimestre.excluidos_contemplados || 0), 0); // Strict
-    const totalActive = regionalData.reduce((acc, curr) => acc + (curr.totais.ativos_total || 0), 0);
+    const regionChartData = detailRows.map(r => {
+      const ads = Number(r.adesoes) || 0;
+      const drops = Number(r.total_dropouts) || 0; // Using Total Dropouts for Region Chart too
+      const act = Number(r.total_active) || 0;
 
-    // Contemplation Mix (Lance vs Sorteio) - Available in Totals/Accumulated or Quarter?
-    // Usually stock mix is better for "Profile".
-    const totalBid = regionalData.reduce((acc, curr) => acc + (curr.acumulados.contemplados_lance || 0), 0);
-    const totalLottery = regionalData.reduce((acc, curr) => acc + (curr.acumulados.contemplados_sorteio || 0), 0);
+      totalAdhesions += ads;
+      totalDropouts += drops;
+      totalActive += act;
+      sumBid += (Number(r.stock_bid) || 0);
+      sumLottery += (Number(r.stock_lottery) || 0);
+
+      return {
+        region: r.uf,
+        adhesions: ads,
+        dropouts: drops
+      };
+    }).sort((a, b) => b.adhesions - a.adhesions).slice(0, 15);
 
     const replacementRatio = totalDropouts > 0 ? totalAdhesions / totalDropouts : 0;
 
-    // Score de saúde ponderado
-    const scoreChurn = Math.max(0, 100 - ((totalDropouts / (totalActive || 1)) * 400)); // Churn alto penaliza muito
-    const scoreReposition = Math.min(100, replacementRatio * 50); // Reposição > 2x é 100
+    // Score
+    const scoreChurn = Math.max(0, 100 - ((totalDropouts / (totalActive || 1)) * 400));
+    const scoreReposition = Math.min(100, replacementRatio * 50);
     const healthScore = (scoreChurn * 0.6) + (scoreReposition * 0.4);
 
-    // Dados por Região para Gráfico
-    const regionChartData = regionalData.reduce((acc: any[], curr) => {
-      const region = curr.uf || 'Outra';
-      const existing = acc.find(x => x.region === region);
-      if (existing) {
-        existing.adhesions += (curr.trimestre.adesoes || 0);
-        existing.dropouts += (curr.trimestre.excluidos_contemplados || 0);
-      } else {
-        acc.push({
-          region: region,
-          adhesions: (curr.trimestre.adesoes || 0),
-          dropouts: (curr.trimestre.excluidos_contemplados || 0)
-        });
-      }
-      return acc;
-    }, []);
-
     return {
-      name: admin.nome_reduzido, // use nome_reduzido
+      name: scatterData.find(s => s.cnpj_raiz === selectedAdminId)?.nome_reduzido || 'Selecionada',
       totalActive,
       replacementRatio,
       churnRate: totalActive > 0 ? (totalDropouts / totalActive) * 100 : 0,
       contemplationMix: [
-        { name: 'Sorteio', value: totalLottery, color: '#10b981' },
-        { name: 'Lance', value: totalBid, color: '#3b82f6' }
+        { name: 'Sorteio', value: sumLottery, color: '#10b981' },
+        { name: 'Lance', value: sumBid, color: '#3b82f6' }
       ],
-      regionChartData: regionChartData.sort((a, b) => b.adhesions - a.adhesions).slice(0, 15), // Limit to top 15 regions
+      regionChartData,
       healthScore
     };
-  }, [selectedAdminId, data]);
+  }, [selectedAdminId, detailRows, scatterData]);
 
   return (
     <div className="space-y-8 animate-fade-in">
@@ -142,14 +160,19 @@ export const OperationalPerformance: React.FC<Props> = ({ data }) => {
             className="block w-full pl-10 pr-4 py-3 border border-slate-200 rounded-xl bg-white focus:ring-2 focus:ring-blue-500 shadow-sm appearance-none cursor-pointer"
           >
             <option value="">Visão Geral do Mercado (Scatter)</option>
-            {validAdmins.map(admin => (
-              <option key={admin.cnpj_raiz} value={admin.cnpj_raiz}>{admin.nome_reduzido}</option>
+            {scatterData.map(admin => (
+              <option key={admin.cnpj_raiz} value={admin.cnpj_raiz}>{admin.nome_reduzido || 'Desconhecida'}</option>
             ))}
           </select>
         </div>
       </div>
 
-      {!selectedAdminId ? (
+      {loadingScatter ? (
+        <div className="flex flex-col items-center justify-center h-64 text-slate-400">
+          <Loader2 className="animate-spin mb-4" size={32} />
+          <p>Carregando mercado...</p>
+        </div>
+      ) : !selectedAdminId ? (
         // VISÃO DE MERCADO
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
           <div className="mb-6 flex justify-between items-end">
@@ -183,8 +206,8 @@ export const OperationalPerformance: React.FC<Props> = ({ data }) => {
                     return null;
                   }}
                 />
-                <Scatter name="Administradoras" data={marketScatterData} fill="#3b82f6">
-                  {marketScatterData.map((entry, index) => (
+                <Scatter name="Administradoras" data={marketScatterChartData} fill="#3b82f6">
+                  {marketScatterChartData.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={entry.growthRate > entry.churnRate ? '#10b981' : '#ef4444'} fillOpacity={0.6} />
                   ))}
                 </Scatter>
@@ -198,7 +221,12 @@ export const OperationalPerformance: React.FC<Props> = ({ data }) => {
         </div>
       ) : (
         // VISÃO DETALHADA
-        selectedMetrics && (
+        loadingDetail ? (
+          <div className="flex flex-col items-center justify-center h-64 text-slate-400">
+            <Loader2 className="animate-spin mb-4" size={32} />
+            <p>Carregando detalhes...</p>
+          </div>
+        ) : selectedMetrics && (
           <>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="bg-white p-5 rounded-xl border border-slate-100 shadow-sm relative overflow-hidden">

@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { DashboardOverview } from './components/views/DashboardOverview';
@@ -9,9 +8,9 @@ import { TrendAnalysis } from './components/views/TrendAnalysis';
 import { RegionalAnalysis } from './components/views/RegionalAnalysis';
 import { DataImport } from './components/views/DataImport';
 import { FileControlView } from './components/views/FileControlView';
+import { PromptSettings } from './components/views/PromptSettings';
 import { Menu, Loader2 } from 'lucide-react';
 import { dataStore } from './services/dataStore';
-import { AppDataStore } from './types';
 
 import { ErrorBoundary } from 'react-error-boundary';
 import { ErrorFallback } from './components/common/ErrorBoundary';
@@ -20,45 +19,28 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isMobileOpen, setIsMobileOpen] = useState(false);
 
-  // Estado Global de Dados (Cache simples)
-  const [globalData, setGlobalData] = useState<AppDataStore | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [dbStatus, setDbStatus] = useState(false);
 
-  // Carregamento inicial de dados
-  const fetchData = async () => {
-    setIsLoading(true);
-
-    // Verifica conexão primeiro
-    const isConnected = await dataStore.checkConnection();
-    setDbStatus(isConnected);
-
-    const data = await dataStore.fetchData();
-    setGlobalData(data);
-    setIsLoading(false);
-  };
-
+  // Connection Check Only
   useEffect(() => {
-    fetchData();
-    // Ouve atualizações vindas do DataImport ou DataStore
-    window.addEventListener('dataUpdate', fetchData);
-    return () => window.removeEventListener('dataUpdate', fetchData);
+    const checkAuth = async () => {
+      setIsLoading(true);
+      const isConnected = await dataStore.checkConnection();
+      setDbStatus(isConnected);
+      setIsLoading(false);
+    };
+    checkAuth();
   }, []);
 
   const renderContent = () => {
-    if (isLoading && activeTab !== 'import') {
+    if (isLoading) {
       return (
         <div className="flex h-[80vh] items-center justify-center flex-col gap-4 text-slate-400">
           <Loader2 className="animate-spin text-blue-600" size={48} />
-          <p>Carregando dados do Firestore...</p>
-          {!dbStatus && <p className="text-xs text-amber-500">Tentando estabelecer conexão segura...</p>}
+          <p>Verificando conexão...</p>
         </div>
       );
-    }
-
-    // Se não houver dados globais (exceto na importação), evita crash
-    if (!globalData && activeTab !== 'import') {
-      return <DataImport />;
     }
 
     return (
@@ -66,21 +48,23 @@ export default function App() {
         {(() => {
           switch (activeTab) {
             case 'dashboard':
-              return <DashboardOverview data={globalData!} />;
+              return <DashboardOverview />;
             case 'admin_analysis':
-              return <AdministratorAnalysis data={globalData!} />;
+              return <AdministratorAnalysis />;
             case 'operational':
-              return <OperationalPerformance data={globalData!} />;
+              return <OperationalPerformance />;
             case 'competitive':
-              return <CompetitiveAnalysis data={globalData!} />;
+              return <CompetitiveAnalysis />;
             case 'trends':
-              return <TrendAnalysis data={globalData!} />;
+              return <TrendAnalysis />;
             case 'regional':
-              return <RegionalAnalysis data={globalData!} />;
+              return <RegionalAnalysis />;
             case 'import':
               return <DataImport />;
             case 'file_control':
               return <FileControlView />;
+            case 'settings':
+              return <PromptSettings />;
             default:
               return (
                 <div className="flex flex-col items-center justify-center h-[60vh] text-slate-400">

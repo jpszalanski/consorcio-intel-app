@@ -1,69 +1,64 @@
-
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, Legend, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { PeriodSelector, PeriodOption } from '../common/PeriodSelector';
 import { AppDataStore } from '../../types';
+import { getFunctions, httpsCallable } from 'firebase/functions';
+import { Loader2 } from 'lucide-react';
 
-interface Props {
-  data: AppDataStore;
+
+
+interface AdminRankingRow {
+  cnpj_raiz: string;
+  nome_reduzido: string;
+  totalBalance: number | string;
+  totalActive: number | string;
 }
 
-export const CompetitiveAnalysis: React.FC<Props> = ({ data }) => {
-  const [period, setPeriod] = useState<PeriodOption>('1y');
+export const CompetitiveAnalysis: React.FC = () => {
+  const [period, setPeriod] = useState<PeriodOption>('all');
+  const [rankingData, setRankingData] = useState<AdminRankingRow[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  // Aggregation of all collections for market share analysis
-  const consolidatedData = useMemo(() => {
-    // Deduplication not strictly needed if we just sum everything up, 
-    // but typically we separate sources.
-
-    return [
-      ...data.consolidated.map(s => ({
-        adminName: s.cnpj_raiz, // We might want to resolve name or just use ID for now. Ideally should join with admins collection.
-        volume: 0,
-        activeQuotas: s.indicadores_calculados.cotas_ativas_total
-      })),
-      ...data.detailedGroups.map(g => {
-        const totalActive = g.metricas_cotas.ativas_em_dia +
-          g.metricas_cotas.contempladas_inadimplentes +
-          g.metricas_cotas.nao_contempladas_inadimplentes;
-        return {
-          adminName: g.cnpj_raiz,
-          volume: (totalActive * g.caracteristicas.valor_medio_do_bem),
-          activeQuotas: totalActive
-        };
-      })
-    ];
-  }, [data]);
+  // Fetch Ranking Data (Reuse Administrator Data logic)
+  useEffect(() => {
+    const fetchRanking = async () => {
+      try {
+        const functions = getFunctions();
+        const getRanking = httpsCallable<unknown, { data: AdminRankingRow[] }>(functions, 'getAdministratorData');
+        const result = await getRanking();
+        setRankingData(result.data.data);
+      } catch (error) {
+        console.error("Error fetching competitive data", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchRanking();
+  }, []);
 
   const marketMetrics = useMemo(() => {
-    if (consolidatedData.length === 0) return [];
+    if (rankingData.length === 0) return [];
 
-    // Simple period slicing simulation since aggregated data above doesn't have period sorting built-in yet for this view
-    // In a real scenario we would filter by period field
-    const relevantData = consolidatedData;
-
-    const adminStats = new Map<string, { volume: number, active: number }>();
     let totalMarketVolume = 0;
-
-    relevantData.forEach(item => {
-      const name = item.adminName?.trim() || 'Outros';
-      if (!adminStats.has(name)) adminStats.set(name, { volume: 0, active: 0 });
-      const entry = adminStats.get(name)!;
-      entry.volume += item.volume;
-      entry.active += item.activeQuotas;
-      totalMarketVolume += item.volume;
+    const cleanData = rankingData.map(r => {
+      const vol = Number(r.totalBalance) || 0;
+      totalMarketVolume += vol;
+      return {
+        name: r.nome_reduzido || 'Desconhecida',
+        volume: vol,
+        active: Number(r.totalActive) || 0
+      };
     });
 
-    const ranking = Array.from(adminStats.entries())
-      .map(([name, stats]) => ({
-        name,
-        volume: stats.volume,
-        share: totalMarketVolume > 0 ? (stats.volume / totalMarketVolume) * 100 : 0
+    const ranking = cleanData
+      .map(item => ({
+        ...item,
+        share: totalMarketVolume > 0 ? (item.volume / totalMarketVolume) * 100 : 0
       }))
       .sort((a, b) => b.volume - a.volume);
 
     return ranking;
-  }, [consolidatedData, period]);
+  }, [rankingData]);
 
   const concentrationIndices = useMemo(() => {
     const shares = marketMetrics.map(m => m.share);
@@ -82,12 +77,27 @@ export const CompetitiveAnalysis: React.FC<Props> = ({ data }) => {
 
     const maxVol = leader.volume || 1;
 
+    // Dominance Calculation: Leader Share / 2nd Place Share (Relative Strength)
+    // Normalized to 0-100 scale for Radar? 
+    // Usually Dominance is just Ratio. Ratio 2.0 means 2x bigger.
+    // Let's stick to the previous logic: (Leader / Share2) * 50 to center around 2x=100? 
+    // Previous Code: `(leader.share / (marketMetrics[1]?.share || 1)) * 50`
+
     return [
       { subject: 'Market Share', A: leader.share, B: avgTop5Share, fullMark: 100 },
       { subject: 'Volume (Relativo)', A: 100, B: (avgTop5Vol / maxVol) * 100, fullMark: 100 },
       { subject: 'Dominância', A: (leader.share / (marketMetrics[1]?.share || 1)) * 50, B: 50, fullMark: 100 },
     ];
   }, [marketMetrics]);
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center h-[60vh] text-slate-400">
+        <Loader2 className="animate-spin mb-4" size={48} />
+        <p>Calculando indicadores de mercado (BigQuery)...</p>
+      </div>
+    );
+  }
 
   if (marketMetrics.length === 0) {
     return <div className="p-8 text-center text-slate-400">Dados insuficientes para análise competitiva.</div>;

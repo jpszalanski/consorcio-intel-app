@@ -1,16 +1,14 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, Legend, PieChart, Pie, CartesianGrid } from 'recharts';
-import { AppDataStore, QuarterlyData } from '../../types';
-import { Map as MapIcon } from 'lucide-react';
+import { AppDataStore } from '../../types';
+import { Map as MapIcon, Loader2, Database } from 'lucide-react';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 
-interface Props {
-  data: AppDataStore;
-}
 
-// Interface interna para agregação da view (compatível com o que o componente espera)
+
+// Interface compatível com o retorno da Cloud Function
 interface RegionalViewData {
   uf: string;
-  region: string; // Not in QuarterlyData, hardcode or remove
   activeContemplatedBid: number;
   activeContemplatedLottery: number;
   activeNonContemplated: number;
@@ -20,53 +18,34 @@ interface RegionalViewData {
   totalActive: number;
 }
 
-export const RegionalAnalysis: React.FC<Props> = ({ data }) => {
-  // 1. Agregação Real por UF (Somando todas as administradoras daquela UF)
-  const aggregatedData = useMemo<RegionalViewData[]>(() => {
-    if (!data.quarterly) return [];
+export const RegionalAnalysis: React.FC = () => {
+  const [aggregatedData, setAggregatedData] = useState<RegionalViewData[]>([]);
+  const [loading, setLoading] = useState(true);
 
-    const ufMap = new Map<string, RegionalViewData>();
-
-    data.quarterly.forEach(item => {
-      // Normalização básica
-      const uf = item.uf.trim().toUpperCase();
-
-      if (!ufMap.has(uf)) {
-        ufMap.set(uf, {
-          uf: uf,
-          region: 'BR', // QuarterlyData doesn't have region, defaulting
-          activeContemplatedBid: 0,
-          activeContemplatedLottery: 0,
-          activeNonContemplated: 0,
-          dropoutContemplated: 0,
-          dropoutNonContemplated: 0,
-          newAdhesionsQuarter: 0,
-          totalActive: 0
-        });
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const functions = getFunctions();
+        const getRegional = httpsCallable<unknown, { data: RegionalViewData[] }>(functions, 'getRegionalData');
+        const result = await getRegional();
+        setAggregatedData(result.data.data);
+      } catch (error) {
+        console.error("Error fetching regional data", error);
+      } finally {
+        setLoading(false);
       }
+    };
+    fetchData();
+  }, []);
 
-      const current = ufMap.get(uf)!;
-      // Mapping Strict QuarterlyData fields to View fields
-      // Corrected based on types.ts:
-      // active/contemplated stock -> acumulados
-      // flow -> trimestre
-      // totals -> totais
-
-      current.activeContemplatedBid += (item.acumulados.contemplados_lance || 0);
-      current.activeContemplatedLottery += (item.acumulados.contemplados_sorteio || 0);
-      current.activeNonContemplated += (item.acumulados.ativos_nao_contemplados || 0);
-
-      current.dropoutContemplated += (item.acumulados.excluidos_contemplados || 0);
-      current.dropoutNonContemplated += (item.acumulados.excluidos_nao_contemplados || 0);
-
-      current.newAdhesionsQuarter += (item.trimestre.adesoes || 0);
-
-      // Fix: 'ativos_total' is the correct property, not 'total_ativos'
-      current.totalActive += (item.totais.ativos_total || 0);
-    });
-
-    return Array.from(ufMap.values()).sort((a, b) => b.totalActive - a.totalActive);
-  }, [data]);
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center h-[60vh] text-slate-400">
+        <Loader2 className="animate-spin mb-4" size={48} />
+        <p>Calculando indicadores regionais (BigQuery)...</p>
+      </div>
+    );
+  }
 
   // Se não houver dados regionais importados
   if (aggregatedData.length === 0) {
@@ -80,8 +59,8 @@ export const RegionalAnalysis: React.FC<Props> = ({ data }) => {
   }
 
   // Dados agregados para gráficos de pizza (Nacional)
-  const totalBid = aggregatedData.reduce((acc, curr) => acc + curr.activeContemplatedBid, 0);
-  const totalLottery = aggregatedData.reduce((acc, curr) => acc + curr.activeContemplatedLottery, 0);
+  const totalBid = aggregatedData.reduce((acc, curr) => acc + (Number(curr.activeContemplatedBid) || 0), 0);
+  const totalLottery = aggregatedData.reduce((acc, curr) => acc + (Number(curr.activeContemplatedLottery) || 0), 0);
 
   const pieData = [
     { name: 'Sorteio', value: totalLottery, color: '#10b981' },
@@ -175,13 +154,15 @@ export const RegionalAnalysis: React.FC<Props> = ({ data }) => {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {aggregatedData.map((row) => {
-                const churn = row.totalActive > 0 ? (row.dropoutNonContemplated / row.totalActive) * 100 : 0;
+                const totalAct = Number(row.totalActive) || 0;
+                const dropouts = Number(row.dropoutNonContemplated) || 0;
+                const churn = totalAct > 0 ? (dropouts / totalAct) * 100 : 0;
                 return (
                   <tr key={row.uf} className="hover:bg-slate-50">
                     <td className="px-6 py-3 font-bold text-slate-900">{row.uf}</td>
-                    <td className="px-6 py-3 text-right">{row.totalActive.toLocaleString()}</td>
-                    <td className="px-6 py-3 text-right text-emerald-600">+{row.newAdhesionsQuarter.toLocaleString()}</td>
-                    <td className="px-6 py-3 text-right text-red-500">-{row.dropoutNonContemplated.toLocaleString()}</td>
+                    <td className="px-6 py-3 text-right">{totalAct.toLocaleString()}</td>
+                    <td className="px-6 py-3 text-right text-emerald-600">+{Number(row.newAdhesionsQuarter).toLocaleString()}</td>
+                    <td className="px-6 py-3 text-right text-red-500">-{dropouts.toLocaleString()}</td>
                     <td className="px-6 py-3 text-right">
                       <span className={`px-2 py-1 rounded-full text-xs font-bold ${churn > 5 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
                         {churn.toFixed(2)}%

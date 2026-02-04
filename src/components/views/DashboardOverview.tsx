@@ -1,14 +1,23 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { MetricsCard } from '../charts/MetricsCard';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { generateMarketInsight, AIAnalysisResult } from '../../services/geminiService';
 import { Sparkles, Loader2, Database, BadgePercent, ArrowUpRight } from 'lucide-react';
 import { PeriodSelector, PeriodOption } from '../common/PeriodSelector';
-import { DataInspector } from '../common/DataInspector';
-import { AppDataStore, BacenSegment } from '../../types';
+import { BacenSegment } from '../../types';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 
-interface Props {
-  data: AppDataStore;
+
+
+interface DashboardStat {
+  data_base: string;
+  codigo_segmento: string;
+  tipo: string;
+  total_active_quotas: number;
+  total_volume_estimated: number;
+  total_default_quotas: number;
+  total_dropouts: number;
+  total_quitadas: number;
 }
 
 interface ChartDataPoint {
@@ -16,91 +25,71 @@ interface ChartDataPoint {
   volume: number;
   participants: number;
   defaultAmount: number;
+  quitadas: number;
+  dropouts: number;
 }
 
+// Convert Enum to String Record Key Safe
 const SEGMENT_COLORS: Record<string, string> = {
-  [BacenSegment.IMOVEIS]: '#2563eb',
-  [BacenSegment.VEICULOS_LEVES]: '#10b981',
-  [BacenSegment.VEICULOS_PESADOS]: '#f59e0b',
-  [BacenSegment.MOTOCICLETAS]: '#ef4444',
-  [BacenSegment.SERVICOS]: '#8b5cf6',
-  [BacenSegment.OUTROS_BENS]: '#64748b'
+  [String(BacenSegment.IMOVEIS)]: '#2563eb',
+  [String(BacenSegment.VEICULOS_LEVES)]: '#10b981',
+  [String(BacenSegment.VEICULOS_PESADOS)]: '#f59e0b',
+  [String(BacenSegment.MOTOCICLETAS)]: '#ef4444',
+  [String(BacenSegment.SERVICOS)]: '#8b5cf6',
+  [String(BacenSegment.OUTROS_BENS)]: '#64748b'
 };
 
-export const DashboardOverview: React.FC<Props> = ({ data }) => {
+export const DashboardOverview: React.FC = () => {
   const [insightData, setInsightData] = useState<AIAnalysisResult | null>(null);
   const [loadingInsight, setLoadingInsight] = useState(false);
   const [period, setPeriod] = useState<PeriodOption>('1y');
+  const [stats, setStats] = useState<DashboardStat[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  // Consolidação de dados (Priorizando dados de Grupo para financeiro)
-  const overviewData = useMemo(() => {
-    if (!data) return [];
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const functions = getFunctions();
+        // Using unknown cast then string, robust invocation
+        const getDashboard = httpsCallable<unknown, { data: DashboardStat[] }>(functions, 'getDashboardData');
+        const result = await getDashboard();
+        const rows = result.data.data;
+        setStats(rows);
+      } catch (error) {
+        console.error("Error fetching dashboard data", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+  }, []);
 
-    // Deduplication Logic: Identify segments covered by groups to avoid double counting if mixing sources
-    // In strict mode, we might just show both or prioritize. Let's prioritize detailed groups if available for a segment-period.
-    const coveredSegments = new Set<string>();
-    data.detailedGroups.forEach(g => coveredSegments.add(`${g.codigo_segmento}-${g.data_base}`));
-
-    // Normalização Consolidated Series (Volume 0 strict)
-    const segs = data.consolidated
-      .map(s => ({
-        period: s.data_base,
-        segment: String(s.codigo_segmento),
-        volume: 0, // STRICT: Segments have no financial volume
-        activeQuotas: s.indicadores_calculados.cotas_ativas_total,
-        defaultQuotas: (s.metricas_brutas.quantidade_de_cotas_ativas_contempladas_inadimplentes + s.metricas_brutas.quantidade_de_cotas_ativas_nao_contempladas_inadimplentes),
-        dropouts: s.metricas_brutas.quantidade_de_cotas_excluidas,
-        quitadas: s.metricas_brutas.quantidade_de_cotas_ativas_quitadas,
-        taxaAdmin: s.metricas_brutas.taxa_de_administracao,
-        contemplated: s.metricas_brutas.quantidade_de_cotas_ativas_contempladas_no_mes,
-        source: 'segment'
-      }));
-
-    // Normalização Detailed Groups
-    const groups = data.detailedGroups.map(g => {
-      // Calculate Active Quotas: Em Dia + Inadimplentes (Contemplados + Nao Contemplados)
-      // Note: "Ativas em Dia" in spec usually accounts for active good standing. 
-      // Formula 2.1 check: C + A + B
-      const totalActive = g.metricas_cotas.ativas_em_dia +
-        g.metricas_cotas.contempladas_inadimplentes +
-        g.metricas_cotas.nao_contempladas_inadimplentes;
-
-      const calculableVolume = totalActive * g.caracteristicas.valor_medio_do_bem;
-
-      return {
-        period: g.data_base,
-        segment: String(g.codigo_segmento),
-        volume: calculableVolume,
-        activeQuotas: totalActive,
-        defaultQuotas: (g.metricas_cotas.contempladas_inadimplentes + g.metricas_cotas.nao_contempladas_inadimplentes),
-        dropouts: g.metricas_cotas.excluidas,
-        quitadas: g.metricas_cotas.quitadas,
-        taxaAdmin: g.caracteristicas.taxa_de_administracao,
-        contemplated: g.metricas_cotas.contempladas_no_mes,
-        source: 'group'
-      };
-    });
-
-    return [...segs, ...groups];
-  }, [data]);
-
-  const isRealData = data && overviewData.length > 0;
-
-  // Agrupamento Temporal para Gráficos
+  // 1. Chart Data Aggregation
   const chartData = useMemo<ChartDataPoint[]>(() => {
-    if (!overviewData.length) return [];
-    const grouped = overviewData.reduce((acc, curr) => {
-      const key = curr.period;
-      if (!acc[key]) acc[key] = { name: key, volume: 0, participants: 0, defaultAmount: 0, quitadas: 0, dropouts: 0 };
-      acc[key].volume += curr.volume;
-      acc[key].participants += curr.activeQuotas;
-      acc[key].defaultAmount += curr.defaultQuotas;
-      acc[key].quitadas += curr.quitadas;
-      acc[key].dropouts += curr.dropouts;
+    if (!stats.length) return [];
+
+    const grouped = stats.reduce((acc, curr) => {
+      const key = curr.data_base;
+      if (!acc[key]) acc[key] = {
+        name: key,
+        volume: 0,
+        participants: 0,
+        defaultAmount: 0,
+        quitadas: 0,
+        dropouts: 0
+      };
+
+      acc[key].volume += Number(curr.total_volume_estimated || 0);
+      acc[key].participants += Number(curr.total_active_quotas || 0);
+      acc[key].defaultAmount += Number(curr.total_default_quotas || 0);
+      acc[key].quitadas += Number(curr.total_quitadas || 0);
+      acc[key].dropouts += Number(curr.total_dropouts || 0);
+
       return acc;
     }, {} as Record<string, ChartDataPoint>);
+
     return Object.values(grouped).sort((a: ChartDataPoint, b: ChartDataPoint) => a.name.localeCompare(b.name));
-  }, [overviewData]);
+  }, [stats]);
 
   const filteredData = useMemo(() => {
     switch (period) {
@@ -111,66 +100,48 @@ export const DashboardOverview: React.FC<Props> = ({ data }) => {
     }
   }, [period, chartData]);
 
-  // Deep Dive por Segmento
+  // 2. Fragment Breakdown
   const segmentBreakdown = useMemo(() => {
-    const map = new Map<string, {
-      name: string;
-      volume: number;
-      quotas: number;
-      defaults: number;
-      dropouts: number;
-      feesSum: number;
-      records: number;
-    }>();
+    if (!chartData.length) return [];
 
     const latestPeriod = chartData[chartData.length - 1]?.name;
-    const currentData = overviewData.filter(d => d.period === latestPeriod);
+    const currentStats = stats.filter(s => s.data_base === latestPeriod);
 
-    currentData.forEach(d => {
-      const segName = d.segment || 'Outros';
-      if (!map.has(segName)) {
-        map.set(segName, { name: segName, volume: 0, quotas: 0, defaults: 0, dropouts: 0, feesSum: 0, records: 0 });
-      }
-      const entry = map.get(segName)!;
-      entry.volume += d.volume;
-      entry.quotas += d.activeQuotas;
-      entry.defaults += d.defaultQuotas;
-      entry.dropouts += d.dropouts;
+    const getSegName = (code: string | number): string => {
+      const c = String(code);
+      if (c === '1') return `1 - ${String(BacenSegment.IMOVEIS)}`;
+      if (c === '2') return `2 - ${String(BacenSegment.VEICULOS_PESADOS)}`;
+      if (c === '3') return `3 - ${String(BacenSegment.VEICULOS_LEVES)}`;
+      if (c === '4') return `4 - ${String(BacenSegment.MOTOCICLETAS)}`;
+      if (c === '6') return `6 - ${String(BacenSegment.SERVICOS)}`;
+      return `${c} - Outros`;
+    };
 
-      if (d.taxaAdmin > 0) {
-        entry.feesSum += d.taxaAdmin;
-        entry.records += 1;
-      }
+    const map = new Map<string, { name: string; volume: number; }>();
+
+    currentStats.forEach(s => {
+      const segName = getSegName(s.codigo_segmento);
+      if (!map.has(segName)) map.set(segName, { name: segName, volume: 0 });
+      map.get(segName)!.volume += Number(s.total_volume_estimated || 0);
     });
 
-    return Array.from(map.values()).map(item => ({
-      ...item,
-      avgFee: item.records > 0 ? item.feesSum / item.records : 0,
-      defaultRate: item.quotas > 0 ? (item.defaults / item.quotas) * 100 : 0,
-      dropoutRate: item.quotas > 0 ? (item.dropouts / item.quotas) * 100 : 0
-    })).sort((a, b) => b.volume - a.volume);
-  }, [overviewData, chartData]);
+    return Array.from(map.values()).sort((a, b) => b.volume - a.volume);
+  }, [stats, chartData]);
 
-  // KPIs
+  // 3. KPIs
   const kpis = useMemo(() => {
     const latest = filteredData[filteredData.length - 1] || { name: '', volume: 0, participants: 0, defaultAmount: 0, quitadas: 0, dropouts: 0 };
     const previous = filteredData.length > 1 ? filteredData[filteredData.length - 2] : null;
 
     const currentActive = latest.participants;
-
-    // Inadimplência: Inadimplentes / Ativas
     const defaultRate = currentActive > 0 ? (latest.defaultAmount / currentActive) * 100 : 0;
 
-    // Exclusão: Excluídas / (Ativas + Excluídas) - STRICT RULE
     const totalExposure = currentActive + latest.dropouts;
     const dropoutRate = totalExposure > 0 ? (latest.dropouts / totalExposure) * 100 : 0;
+    const quitationRateCalc = currentActive > 0 ? (latest.quitadas / currentActive) * 100 : 0;
 
-    // Quitação: Quitadas / Ativas - STRICT RULE
-    const quitationRate = currentActive > 0 ? (latest.quitadas / currentActive) * 100 : 0;
-
-    const recordsWithRevenue = overviewData.filter(d => d.volume > 0 && d.period === latest.name);
-    const totalRev = recordsWithRevenue.reduce((acc, r) => acc + r.volume, 0);
-    const totalQtd = recordsWithRevenue.reduce((acc, r) => acc + r.activeQuotas, 0);
+    const totalRev = latest.volume;
+    const totalQtd = latest.participants;
     const avgTicket = totalQtd > 0 ? totalRev / totalQtd : 0;
 
     const volumeTrend = previous && previous.volume > 0
@@ -188,38 +159,53 @@ export const DashboardOverview: React.FC<Props> = ({ data }) => {
       defaultTrend,
       volumeTrend,
       dropoutRate,
-      quitationRate
+      quitationRate: quitationRateCalc
     };
-  }, [filteredData, overviewData]);
+  }, [filteredData]);
 
-  if (!isRealData) {
+
+  const handleGenerateInsight = async () => {
+    setLoadingInsight(true);
+    const context = `
+        Cenário Atual de Mercado (Consórcio):
+        - Volume Financeiro Total: R$ ${(kpis.balanceVolume / 1000000).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} Milhões
+        - Cotas Ativas: ${kpis.activeQuotas.toLocaleString('pt-BR')}
+        - Segmento Líder (Volume): ${segmentBreakdown[0]?.name} (R$ ${(segmentBreakdown[0]?.volume / 1000000).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}M)
+        - Inadimplência Média: ${kpis.defaultRate.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%
+        - Taxa de Quitação: ${kpis.quitationRate.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%
+        - Rotatividade (Exclusão): ${kpis.dropoutRate.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%
+        - Ticket Médio: R$ ${kpis.avgTicket.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
+        `;
+    const result = await generateMarketInsight(context, { history: filteredData.slice(-6) });
+    setInsightData(result);
+    setLoadingInsight(false);
+  };
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center h-[70vh] space-y-4 text-center">
+        <Loader2 className="animate-spin text-blue-600" size={48} />
+        <p className="text-slate-500">Consolidando milhões de registros via BigQuery...</p>
+        <div className="flex gap-2 justify-center mt-2">
+          <span className="w-2 h-2 bg-blue-500 rounded-full animate-bounce delay-100"></span>
+          <span className="w-2 h-2 bg-blue-500 rounded-full animate-bounce delay-200"></span>
+          <span className="w-2 h-2 bg-blue-500 rounded-full animate-bounce delay-300"></span>
+        </div>
+      </div>
+    );
+  }
+
+  if (!loading && !stats.length) {
     return (
       <div className="flex flex-col items-center justify-center h-[70vh] space-y-4 text-center">
         <div className="p-6 bg-slate-100 rounded-full">
           <Database size={48} className="text-slate-400" />
         </div>
         <h2 className="text-2xl font-bold text-slate-900">Nenhum dado encontrado</h2>
-        <p className="text-slate-500 max-w-md">Importe os arquivos CSV do BACEN (Segmentos, Imóveis ou Móveis) para visualizar os indicadores de mercado.</p>
+        <p className="text-slate-500 max-w-md">Importe os arquivos CSV do BACEN para visualizar os indicadores.</p>
       </div>
     );
   }
-
-  const handleGenerateInsight = async () => {
-    setLoadingInsight(true);
-    const context = `
-      Cenário Atual de Mercado (Consórcio):
-      - Volume Financeiro Total: R$ ${(kpis.balanceVolume / 1000000).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} Milhões
-      - Cotas Ativas: ${kpis.activeQuotas.toLocaleString('pt-BR')}
-      - Segmento Líder (Volume): ${segmentBreakdown[0]?.name} (R$ ${(segmentBreakdown[0]?.volume / 1000000).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}M)
-      - Inadimplência Média: ${kpis.defaultRate.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%
-      - Taxa de Quitação: ${kpis.quitationRate.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%
-      - Rotatividade (Exclusão): ${kpis.dropoutRate.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%
-      - Ticket Médio: R$ ${kpis.avgTicket.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
-    `;
-    const result = await generateMarketInsight(context, { history: filteredData.slice(-6) });
-    setInsightData(result);
-    setLoadingInsight(false);
-  };
 
   return (
     <div className="space-y-6 pb-12">
@@ -402,9 +388,6 @@ export const DashboardOverview: React.FC<Props> = ({ data }) => {
           </div>
         </div>
       </div>
-
-      {/* DEBUG INSPECTOR */}
-      <DataInspector data={data} />
     </div>
   );
 };
