@@ -11,7 +11,10 @@ interface PromptTemplate {
     variables: string[];
 }
 
+import { useAuth } from '../../hooks/useAuth';
+
 export const PromptSettings: React.FC = () => {
+    const { isAdmin, loading: authLoading } = useAuth();
     const [prompts, setPrompts] = useState<PromptTemplate[]>([]);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -20,8 +23,25 @@ export const PromptSettings: React.FC = () => {
     const db = getFirestore();
 
     useEffect(() => {
-        fetchPrompts();
-    }, []);
+        if (isAdmin) fetchPrompts();
+    }, [isAdmin]);
+
+    if (authLoading) return null;
+
+    if (!isAdmin) {
+        return (
+            <div className="flex flex-col items-center justify-center h-[60vh] text-slate-500 animate-fade-in">
+                <div className="p-4 bg-red-50 rounded-full text-red-500 mb-4">
+                    <AlertCircle size={32} />
+                </div>
+                <h3 className="text-xl font-bold text-slate-800">Acesso Negado</h3>
+                <p>Configurações de Prompt são exclusivas para administradores.</p>
+            </div>
+        );
+    }
+
+    if (loading) return <div className="p-8 text-center text-slate-400">Carregando configurações...</div>;
+    // ... render
 
     const fetchPrompts = async () => {
         setLoading(true);

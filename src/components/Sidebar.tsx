@@ -1,6 +1,7 @@
 
 import React from 'react';
-import { LayoutDashboard, TrendingUp, Map, PieChart, Briefcase, Activity, Menu, Database, Building2, Wifi, WifiOff, FileText } from 'lucide-react';
+import { LayoutDashboard, TrendingUp, Map, PieChart, Activity, Menu, Database, Building2, Wifi, WifiOff, FileText, LogOut, LogIn, Users } from 'lucide-react';
+import { useAuth } from '../hooks/useAuth';
 
 interface SidebarProps {
   activeTab: string;
@@ -11,6 +12,8 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isMobileOpen, setIsMobileOpen, dbStatus = false }) => {
+  const { user, isAdmin, signOut } = useAuth();
+
   const menuItems = [
     { id: 'dashboard', label: 'Visão Geral', icon: LayoutDashboard },
     { id: 'admin_analysis', label: 'Análise por Adm.', icon: Building2 },
@@ -45,7 +48,38 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isMob
           </button>
         </div>
 
-        <nav className="p-4 space-y-2 mt-4">
+        {/* User Profile - Top */}
+        <div className="px-6 py-4 border-b border-slate-800/30">
+          {user ? (
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-2 text-slate-300 text-xs truncate">
+                <Users size={14} className="min-w-[14px] text-blue-500" />
+                <span className="truncate font-medium">{user.email}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                {isAdmin && (
+                  <span className="text-[10px] bg-blue-900/50 text-blue-400 px-2 py-0.5 rounded border border-blue-800/50">Admin</span>
+                )}
+                <button
+                  onClick={() => signOut()}
+                  className="flex items-center gap-1 text-slate-500 hover:text-white text-[10px] transition-colors ml-auto"
+                  title="Sair"
+                >
+                  <LogOut size={12} /> Sair
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={() => setActiveTab('login')}
+              className="w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-white text-xs py-2 rounded-lg transition-colors border border-slate-700"
+            >
+              <LogIn size={14} /> Fazer Login
+            </button>
+          )}
+        </div>
+
+        <nav className="p-4 space-y-2 mt-2">
           {menuItems.map((item) => {
             const Icon = item.icon;
             return (
@@ -69,7 +103,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isMob
 
         <div className="absolute bottom-0 w-full p-6 border-t border-slate-800 bg-slate-950/50">
           <div className="rounded-xl bg-slate-800/50 p-4 border border-slate-700/50 space-y-3">
-            <div>
+            <div className="pt-3 border-t border-slate-700/50">
               <h4 className="text-[10px] font-bold uppercase text-slate-500 mb-2 tracking-widest">Status da API</h4>
               <div className="flex items-center gap-2">
                 <div className={`h-2 w-2 rounded-full ${import.meta.env.VITE_GEMINI_API_KEY ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>

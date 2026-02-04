@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../hooks/useAuth';
-import { UploadCloud, CheckCircle2, AlertTriangle, Loader2 } from 'lucide-react';
+import { UploadCloud, CheckCircle2, AlertTriangle, Loader2, Trash2 } from 'lucide-react';
 import { BigQueryImport } from './BigQueryImport';
 
 export const DataImport: React.FC = () => {
@@ -27,6 +27,46 @@ export const DataImport: React.FC = () => {
       </div>
 
       <BigQueryImport />
+
+      {/* DANGER ZONE */}
+      <div className="pt-12 border-t border-slate-200 mt-12">
+        <h3 className="text-lg font-bold text-red-600 mb-4 flex items-center gap-2">
+          <AlertTriangle className="text-red-500" /> Zona de Perigo
+        </h3>
+        <div className="bg-red-50 border border-red-200 rounded-xl p-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div>
+            <p className="text-slate-800 font-medium">Excluir todos os dados do sistema</p>
+            <p className="text-red-600/80 text-sm mt-1">
+              Esta ação apagará <strong>todos</strong> os registros importados do banco de dados e registros de controle.
+              <br />Os arquivos brutos (Storage) não serão apagados, mas o BigQuery e painéis serão limpos.
+            </p>
+          </div>
+          <button
+            onClick={async () => {
+              const confirm1 = confirm("ATENÇÃO: Você está prestes a apagar TODOS os dados do sistema. Esta ação é irreversível.");
+              if (!confirm1) return;
+              const confirm2 = confirm("Tem certeza absoluta? Digite 'CONFIRMAR' mentalmente e clique em OK para prosseguir.");
+              if (!confirm2) return;
+
+              try {
+                // We need access to functions here. Assuming imported from firebase/functions
+                const { getFunctions, httpsCallable } = await import('firebase/functions');
+                const functions = getFunctions();
+                const reset = httpsCallable(functions, 'resetSystemData');
+
+                await reset();
+                alert("Sistema resetado com sucesso.");
+                window.location.reload();
+              } catch (e: any) {
+                alert("Erro ao resetar: " + e.message);
+              }
+            }}
+            className="bg-red-600 hover:bg-red-700 text-white font-bold px-6 py-3 rounded-xl shadow-lg shadow-red-900/20 transition-all flex items-center gap-2 whitespace-nowrap"
+          >
+            <Trash2 size={18} /> Apagar Tudo
+          </button>
+        </div>
+      </div>
     </div>
   );
 };

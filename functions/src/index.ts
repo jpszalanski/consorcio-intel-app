@@ -374,8 +374,10 @@ export const processFileUpload = functions.storage.object().onFinalize(async (ob
 // --- MANAGEMENT FUNCTIONS ---
 
 export const deleteFile = functions.https.onCall(async (data, context) => {
-    // Check Auth
-    // if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'User must be logged in');
+    // Check Auth - Admin Only
+    if (!context.auth?.token?.admin) {
+        throw new functions.https.HttpsError('permission-denied', 'Admin access required');
+    }
 
     const { fileId, storagePath } = data;
     if (!fileId || !storagePath) throw new functions.https.HttpsError('invalid-argument', 'Missing fileId or storagePath');
@@ -400,7 +402,10 @@ export const deleteFile = functions.https.onCall(async (data, context) => {
 });
 
 export const reprocessFile = functions.https.onCall(async (data, context) => {
-    // if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'User must be logged in');
+    // Check Auth - Admin Only
+    if (!context.auth?.token?.admin) {
+        throw new functions.https.HttpsError('permission-denied', 'Admin access required');
+    }
 
     const { storagePath } = data;
     if (!storagePath) throw new functions.https.HttpsError('invalid-argument', 'Missing storagePath');
@@ -412,17 +417,62 @@ export const reprocessFile = functions.https.onCall(async (data, context) => {
         const [exists] = await storage.bucket().file(storagePath).exists();
         if (!exists) throw new functions.https.HttpsError('not-found', 'File not found in storage');
 
-        // 2. Trigger "finalize" manually?? 
-        // No, easier to just Copy the file to itself to re-trigger the event, 
-        // OR we just invoke logic.
-        // For simplicity: We "touch" the file metadata to re-trigger the onFinalize hook?
-        // Actually, copying to same location creates a finalize event.
-
         await storage.bucket().file(storagePath).copy(storagePath);
 
         return { success: true, message: 'Reprocessing triggered' };
     } catch (error: any) {
         console.error("Reprocess Error", error);
+        throw new functions.https.HttpsError('internal', error.message);
+    }
+});
+
+export const resetSystemData = functions.https.onCall(async (data, context) => {
+    // Check Auth - Admin Only
+    if (!context.auth?.token?.admin) {
+        throw new functions.https.HttpsError('permission-denied', 'Admin access required');
+    }
+
+    const db = admin.firestore();
+
+    try {
+        console.warn("INITIATING SYSTEM RESET - DELETING ALL IMPORTED DATA");
+
+        // 1. Truncate BigQuery Tables
+        const tables = [
+            'series_consolidadas',
+            'grupos_detalhados',
+            'dados_trimestrais_uf',
+            'administradoras',
+            'segmentos'
+        ];
+
+        for (const tableId of tables) {
+            try {
+                const query = `TRUNCATE TABLE \`${DATASET_ID}.${tableId}\``;
+                await bigquery.query({ query, location: LOCATION });
+                console.log(`Truncated table: ${tableId}`);
+            } catch (bqErr: any) {
+                console.warn(`Failed to truncate ${tableId} (might not exist):`, bqErr.message);
+            }
+        }
+
+        // 2. Clear Firestore Control Collection
+        const snapshot = await db.collection('file_imports_control').get();
+        if (!snapshot.empty) {
+            const batch = db.batch();
+            let count = 0;
+            snapshot.docs.forEach(doc => {
+                batch.delete(doc.ref);
+                count++;
+            });
+            await batch.commit();
+            console.log(`Deleted ${count} control records from Firestore.`);
+        }
+
+        return { success: true, message: 'System data reset successfully.' };
+
+    } catch (error: any) {
+        console.error("Reset System Error", error);
         throw new functions.https.HttpsError('internal', error.message);
     }
 });
