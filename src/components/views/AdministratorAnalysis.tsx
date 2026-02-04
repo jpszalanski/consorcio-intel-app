@@ -48,13 +48,15 @@ const getSegName = (code: string | number): string => {
 };
 
 export const AdministratorAnalysis: React.FC = () => {
-  const [viewMode, setViewMode] = useState<'ranking' | 'detail'>('ranking');
+  const [viewMode, setViewMode] = useState<'ranking' | 'detail' | 'comparison'>('ranking');
   const [adminAId, setAdminAId] = useState<string>('');
+  const [adminBId, setAdminBId] = useState<string>('');
 
   const [rankingData, setRankingData] = useState<AdminRankingRow[]>([]);
   const [loadingRanking, setLoadingRanking] = useState(true);
 
   const [detailRows, setDetailRows] = useState<AdminDetailRow[]>([]);
+  const [detailRowsB, setDetailRowsB] = useState<AdminDetailRow[]>([]);
   const [loadingDetail, setLoadingDetail] = useState(false);
 
   const [currentAnalysis, setCurrentAnalysis] = useState<AIAnalysisResult | null>(null);
@@ -90,8 +92,19 @@ export const AdministratorAnalysis: React.FC = () => {
       try {
         const functions = getFunctions();
         const getDetail = httpsCallable<{ cnpj: string }, { data: AdminDetailRow[] }>(functions, 'getAdministratorDetail');
-        const result = await getDetail({ cnpj: adminAId });
-        setDetailRows(result.data.data);
+
+        // Fetch A
+        const resultA = await getDetail({ cnpj: adminAId });
+        setDetailRows(resultA.data.data);
+
+        // Fetch B if in comparison
+        if (viewMode === 'comparison' && adminBId) {
+          const resultB = await getDetail({ cnpj: adminBId });
+          setDetailRowsB(resultB.data.data);
+        } else {
+          setDetailRowsB([]);
+        }
+
       } catch (error) {
         console.error("Error fetching admin detail", error);
       } finally {
@@ -123,15 +136,14 @@ export const AdministratorAnalysis: React.FC = () => {
 
     fetchDetail();
     fetchHistory();
-  }, [adminAId]);
+  }, [adminAId, adminBId, viewMode]);
 
-  // 3. Compute Metrics
-  const metricsA = useMemo(() => {
-    if (detailRows.length === 0) return null;
-
+  // 3. Compute Metrics Helper
+  const calculateMetrics = (rows: AdminDetailRow[], cnpjInput: string) => {
+    if (rows.length === 0) return null;
     // History & Snapshot logic
     const historyMap = new Map<string, number>();
-    detailRows.forEach(row => {
+    rows.forEach(row => {
       const vol = Number(row.total_volume) || 0;
       historyMap.set(row.data_base, (historyMap.get(row.data_base) || 0) + vol);
     });
@@ -140,7 +152,7 @@ export const AdministratorAnalysis: React.FC = () => {
       .sort((a, b) => a.period.localeCompare(b.period));
 
     const latestDate = history.length > 0 ? history[history.length - 1].period : '';
-    const currentRows = detailRows.filter(r => r.data_base === latestDate);
+    const currentRows = rows.filter(r => r.data_base === latestDate);
 
     let totalActive = 0, totalBalance = 0, sumFees = 0, sumTerm = 0, sumDefaults = 0, sumDropouts = 0;
 
@@ -180,10 +192,13 @@ export const AdministratorAnalysis: React.FC = () => {
     const name = currentRows.length > 0 ? currentRows[0].nome_reduzido : 'Unknown';
 
     return {
-      name, cnpj: adminAId, totalBalance, totalActive, avgTerm, avgAdminFee, defaultRate, avgTicket,
+      name, cnpj: cnpjInput, totalBalance, totalActive, avgTerm, avgAdminFee, defaultRate, avgTicket,
       history, segmentBreakdown, segmentsData
     };
-  }, [detailRows, adminAId]);
+  };
+
+  const metricsA = useMemo(() => calculateMetrics(detailRows, adminAId), [detailRows, adminAId]);
+  const metricsB = useMemo(() => calculateMetrics(detailRowsB, adminBId), [detailRowsB, adminBId]);
 
   const handleGenerateReport = async () => {
     if (!metricsA) return;
@@ -584,6 +599,114 @@ export const AdministratorAnalysis: React.FC = () => {
     );
   };
 
+  const renderComparisonView = () => {
+    if (loadingDetail) return <div className="text-center p-12"><Loader2 className="animate-spin inline" /></div>;
+    if (!metricsA) return <p className="text-center text-slate-500">Selecione uma administradora para começar.</p>;
+
+    // Fallback if B not selected or loading
+    const mb = metricsB || { name: 'Selecione...', totalBalance: 0, totalActive: 0, avgTerm: 0, avgAdminFee: 0, defaultRate: 0, avgTicket: 0 };
+
+    const diff = (valA: number, valB: number, inverse = false) => {
+      const d = valA - valB;
+      if (valB === 0) return null;
+      const color = inverse
+        ? (d < 0 ? 'text-green-600' : 'text-red-600')
+        : (d > 0 ? 'text-green-600' : 'text-red-600');
+      return <span className={`text-xs ml-2 font-bold ${color}`}>{d > 0 ? '+' : ''}{d.toFixed(2)}</span>;
+    };
+
+    return (
+      <div className="space-y-6 animate-fade-in">
+        <div className="flex justify-between items-center bg-white p-4 rounded-xl border border-slate-200">
+          <button
+            onClick={() => setViewMode('ranking')}
+            className="flex items-center gap-1 text-sm font-medium text-slate-500 hover:text-slate-800"
+          >
+            ← Voltar para Ranking
+          </button>
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-bold text-slate-700">Comparando com:</span>
+            <select
+              value={adminBId}
+              onChange={(e) => setAdminBId(e.target.value)}
+              className="px-3 py-2 border border-slate-200 rounded-lg text-sm"
+            >
+              <option value="">Selecione...</option>
+              {rankingData.filter(r => r.cnpj_raiz !== adminAId).map(admin => (
+                <option key={admin.cnpj_raiz} value={admin.cnpj_raiz}>{admin.nome_reduzido}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {/* Admin A Card */}
+          <div className="bg-white p-6 rounded-xl border border-blue-200 shadow-sm md:col-span-1">
+            <h3 className="font-bold text-lg text-slate-900 mb-4">{metricsA.name}</h3>
+            <div className="space-y-4">
+              <div>
+                <p className="text-xs text-slate-500 uppercase">Volume Carteira</p>
+                <p className="text-xl font-bold text-blue-700">R$ {(metricsA.totalBalance / 1_000_000).toFixed(1)}M</p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-500 uppercase">Inadimplência</p>
+                <p className="text-xl font-bold text-slate-800">{metricsA.defaultRate.toFixed(2)}%</p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-500 uppercase">Taxa Adm.</p>
+                <p className="text-xl font-bold text-slate-800">{metricsA.avgAdminFee.toFixed(2)}%</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Comparison Center */}
+          <div className="bg-slate-50 p-6 rounded-xl border border-slate-200 flex flex-col justify-center items-center text-center space-y-6">
+            <h3 className="font-bold text-slate-400 text-sm uppercase">Diferencial (A vs B)</h3>
+
+            <div className="w-full border-b border-slate-200 pb-2">
+              <p className="text-xs text-slate-400">Diferença Volume</p>
+              <p className="font-bold text-lg">
+                {(metricsA.totalBalance - mb.totalBalance) > 0 ? '+' : ''}
+                R$ {((metricsA.totalBalance - mb.totalBalance) / 1_000_000).toFixed(1)}M
+              </p>
+            </div>
+            <div className="w-full border-b border-slate-200 pb-2">
+              <p className="text-xs text-slate-400">Gap Inadimplência</p>
+              <div className="flex items-center justify-center">
+                {diff(metricsA.defaultRate, mb.defaultRate, true)}
+              </div>
+            </div>
+          </div>
+
+          {/* Admin B Card */}
+          <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm md:col-span-1 opacity-90">
+            <h3 className="font-bold text-lg text-slate-900 mb-4">{metricsB ? metricsB.name : 'Selecione...'}</h3>
+            {metricsB ? (
+              <div className="space-y-4">
+                <div>
+                  <p className="text-xs text-slate-500 uppercase">Volume Carteira</p>
+                  <p className="text-xl font-bold text-slate-600">R$ {(metricsB.totalBalance / 1_000_000).toFixed(1)}M</p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500 uppercase">Inadimplência</p>
+                  <p className="text-xl font-bold text-slate-800">{metricsB.defaultRate.toFixed(2)}%</p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500 uppercase">Taxa Adm.</p>
+                  <p className="text-xl font-bold text-slate-800">{metricsB.avgAdminFee.toFixed(2)}%</p>
+                </div>
+              </div>
+            ) : (
+              <div className="h-40 flex items-center justify-center text-slate-400 text-sm italic">
+                Selecione uma administradora para comparar
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-6 pb-12">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -594,19 +717,27 @@ export const AdministratorAnalysis: React.FC = () => {
 
         <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
           {viewMode === 'detail' && (
-            <div className="relative w-full md:min-w-[300px]">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-              <select
-                value={adminAId}
-                onChange={(e) => setAdminAId(e.target.value)}
-                className="w-full pl-10 pr-4 py-3 border border-slate-200 rounded-xl bg-white focus:ring-2 focus:ring-blue-500 shadow-sm appearance-none outline-none transition-all"
+            <>
+              <div className="relative w-full md:min-w-[250px]">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                <select
+                  value={adminAId}
+                  onChange={(e) => setAdminAId(e.target.value)}
+                  className="w-full pl-10 pr-4 py-3 border border-slate-200 rounded-xl bg-white focus:ring-2 focus:ring-blue-500 shadow-sm appearance-none outline-none transition-all"
+                >
+                  <option value="">Trocar Administradora...</option>
+                  {rankingData.map(admin => (
+                    <option key={admin.cnpj_raiz} value={admin.cnpj_raiz}>{admin.nome_reduzido || 'Desconhecida'}</option>
+                  ))}
+                </select>
+              </div>
+              <button
+                onClick={() => setViewMode('comparison')}
+                className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 px-5 py-3 rounded-xl font-bold transition-all"
               >
-                <option value="">Trocar Administradora...</option>
-                {rankingData.map(admin => (
-                  <option key={admin.cnpj_raiz} value={admin.cnpj_raiz}>{admin.nome_reduzido || 'Desconhecida'}</option>
-                ))}
-              </select>
-            </div>
+                <Users size={18} /> Comparar
+              </button>
+            </>
           )}
 
           {viewMode === 'detail' && metricsA && (
@@ -622,15 +753,15 @@ export const AdministratorAnalysis: React.FC = () => {
         </div>
       </div>
 
-      {currentAnalysis && (
+      {currentAnalysis && viewMode === 'detail' && (
         <div className="bg-white border border-indigo-100 rounded-2xl p-6 shadow-sm animate-fade-in relative overflow-hidden my-6">
-          {/* Analysis View (same as above but placed here for structure consistency if needed, or rely on renderSingleView's internal logic which is better) */}
-          {/* Note: I placed it inside renderSingleView in the code above. */}
+          {/* Render logic handled by renderSingleView internally typically, but keeping structure */}
         </div>
       )}
-      {/* Actually, renderSingleView handles the conditional rendering of the analysis box. */}
 
-      {viewMode === 'ranking' ? renderRankingView() : renderSingleView()}
+      {viewMode === 'ranking' && renderRankingView()}
+      {viewMode === 'detail' && renderSingleView()}
+      {viewMode === 'comparison' && renderComparisonView()}
     </div>
   );
 };
