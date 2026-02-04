@@ -431,36 +431,28 @@ export const reprocessFile = functions.https.onCall(async (data, context) => {
 
 export const getTrendData = functions.https.onCall(async (data, context) => {
     const query = `
-        WITH LatestSegments AS (
-            SELECT 
-                codigo_segmento, 
-                ANY_VALUE(nome) as nome 
-            FROM \`consorcio_data.segmentos\` 
-            GROUP BY codigo_segmento
-        )
         SELECT
-            t.data_base,
-            t.codigo_segmento,
-            ANY_VALUE(sg.nome) as nome_segmento,
+            data_base,
+            codigo_segmento,
+            ANY_VALUE(JSON_VALUE(metricas_raw, '$.Nome_do_segmento')) as nome_segmento,
             
             SUM(
-                SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) + 
-                IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
-                IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
+                SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) + 
+                IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
+                IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
             ) as total_quotas,
 
             SUM(
                 (
-                    SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) + 
-                    IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
-                    IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
-                ) * SAFE_CAST(REPLACE(REPLACE(JSON_VALUE(t.metricas_raw, '$.Valor_médio_do_bem'), '.', ''), ',', '.') AS FLOAT64)
+                    SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) + 
+                    IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
+                    IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
+                ) * SAFE_CAST(REPLACE(REPLACE(JSON_VALUE(metricas_raw, '$.Valor_médio_do_bem'), '.', ''), ',', '.') AS FLOAT64)
             ) as total_volume
 
-        FROM \`consorcio_data.series_consolidadas\` t
-        LEFT JOIN LatestSegments sg ON sg.codigo_segmento = t.codigo_segmento
-        GROUP BY t.data_base, t.codigo_segmento
-        ORDER BY t.data_base ASC
+        FROM \`consorcio_data.series_consolidadas\`
+        GROUP BY data_base, codigo_segmento
+        ORDER BY data_base ASC
     `;
 
     try {
@@ -474,7 +466,10 @@ export const getTrendData = functions.https.onCall(async (data, context) => {
 
 export const getAdministratorData = functions.https.onCall(async (data, context) => {
     const query = `
-        WITH LatestAdmins AS (
+        WITH MaxDate AS (
+            SELECT MAX(data_base) as max_date FROM \`consorcio_data.series_consolidadas\`
+        ),
+        LatestAdmins AS (
             SELECT
                 SUBSTR(cnpj, 1, 8) as cnpj_raiz,
                 nome,
@@ -518,7 +513,9 @@ export const getAdministratorData = functions.https.onCall(async (data, context)
             ) as totalFeesWeighted
 
         FROM \`consorcio_data.series_consolidadas\` t
+        CROSS JOIN MaxDate md
         LEFT JOIN LatestAdmins adm ON adm.cnpj_raiz = t.cnpj_raiz AND adm.rn = 1
+        WHERE t.data_base = md.max_date
         GROUP BY t.cnpj_raiz
         ORDER BY totalBalance DESC
     `;
@@ -623,6 +620,9 @@ export const getOperationalData = functions.https.onCall(async (data, context) =
 
     if (mode === 'detail') {
         query = `
+    WITH MaxDate AS (
+        SELECT MAX(data_base) as max_date FROM \`consorcio_data.dados_trimestrais_uf\`
+    )
     SELECT
         uf,
         -- Flow (Quarter)
@@ -645,8 +645,9 @@ export const getOperationalData = functions.https.onCall(async (data, context) =
         SUM(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_consorciados_ativos_contemplados_por_lance') AS INT64)) as stock_bid,
         SUM(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_consorciados_ativos_contemplados_por_sorteio') AS INT64)) as stock_lottery
 
-    FROM \`consorcio_data.dados_trimestrais_uf\`
-    WHERE cnpj_raiz = @cnpj
+    FROM \`consorcio_data.dados_trimestrais_uf\` t
+    CROSS JOIN MaxDate md
+    WHERE cnpj_raiz = @cnpj AND t.data_base = md.max_date
     GROUP BY uf
     ORDER BY adesoes DESC
 `;
@@ -654,7 +655,10 @@ export const getOperationalData = functions.https.onCall(async (data, context) =
     } else {
         // Market Overview (Scatter) - Aggregated by Admin
         query = `
-    WITH LatestAdmins AS (
+    WITH MaxDate AS (
+        SELECT MAX(data_base) as max_date FROM \`consorcio_data.dados_trimestrais_uf\`
+    ),
+    LatestAdmins AS (
         SELECT
             SUBSTR(cnpj, 1, 8) as cnpj_raiz,
             nome,
@@ -679,9 +683,11 @@ export const getOperationalData = functions.https.onCall(async (data, context) =
         ) as total_active
 
     FROM \`consorcio_data.dados_trimestrais_uf\` t
+    CROSS JOIN MaxDate md
     LEFT JOIN LatestAdmins adm ON adm.cnpj_raiz = t.cnpj_raiz AND adm.rn = 1
+    WHERE t.data_base = md.max_date
     GROUP BY t.cnpj_raiz
-    HAVING total_active > 100 -- Noise filter
+    HAVING total_active > 100
     ORDER BY total_active DESC
 `;
     }
@@ -697,32 +703,36 @@ export const getOperationalData = functions.https.onCall(async (data, context) =
 
 export const getRegionalData = functions.https.onCall(async (data, context) => {
     const query = `
+        WITH MaxDate AS (
+            SELECT MAX(data_base) as max_date FROM \`consorcio_data.dados_trimestrais_uf\`
+        )
         SELECT
-            uf,
+            t.uf,
             COUNT(*) as records_count,
             
             -- Acumulados (Stock)
-            SUM(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_consorciados_ativos_contemplados_por_lance') AS INT64)) as activeContemplatedBid,
-            SUM(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_consorciados_ativos_contemplados_por_sorteio') AS INT64)) as activeContemplatedLottery,
-            SUM(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_consorciados_ativos_não_contemplados') AS INT64)) as activeNonContemplated,
+            SUM(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_consorciados_ativos_contemplados_por_lance') AS INT64)) as activeContemplatedBid,
+            SUM(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_consorciados_ativos_contemplados_por_sorteio') AS INT64)) as activeContemplatedLottery,
+            SUM(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_consorciados_ativos_não_contemplados') AS INT64)) as activeNonContemplated,
             
             -- Excluded (Stock)
-            SUM(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_consorciados_excluídos_contemplados') AS INT64)) as dropoutContemplated,
-            SUM(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_consorciados_excluídos_não_contemplados') AS INT64)) as dropoutNonContemplated,
+            SUM(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_consorciados_excluídos_contemplados') AS INT64)) as dropoutContemplated,
+            SUM(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_consorciados_excluídos_não_contemplados') AS INT64)) as dropoutNonContemplated,
             
             -- Flow (Quarter)
-            SUM(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_adesões_no_trimestre') AS INT64)) as newAdhesionsQuarter,
+            SUM(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_adesões_no_trimestre') AS INT64)) as newAdhesionsQuarter,
             
             -- Total Active
             SUM(
-                SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_consorciados_ativos_contemplados_por_lance') AS INT64) +
-                SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_consorciados_ativos_contemplados_por_sorteio') AS INT64) +
-                SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_consorciados_ativos_não_contemplados') AS INT64)
+                SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_consorciados_ativos_contemplados_por_lance') AS INT64) +
+                SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_consorciados_ativos_contemplados_por_sorteio') AS INT64) +
+                SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_consorciados_ativos_não_contemplados') AS INT64)
             ) as totalActive
 
-        FROM \`consorcio_data.dados_trimestrais_uf\`
-        WHERE uf IS NOT NULL AND uf != ''
-        GROUP BY uf
+        FROM \`consorcio_data.dados_trimestrais_uf\` t
+        CROSS JOIN MaxDate md
+        WHERE t.uf IS NOT NULL AND t.uf != '' AND t.data_base = md.max_date
+        GROUP BY t.uf
         ORDER BY totalActive DESC
     `;
 
@@ -736,46 +746,39 @@ export const getRegionalData = functions.https.onCall(async (data, context) => {
 });
 
 export const getDashboardData = functions.https.onCall(async (data, context) => {
+    // Fallback query that doesn't depend on 'segmentos' table existence
     const query = `
-        WITH LatestSegments AS (
-            SELECT 
-                codigo_segmento, 
-                ANY_VALUE(nome) as nome 
-            FROM \`consorcio_data.segmentos\` 
-            GROUP BY codigo_segmento
-        )
         SELECT
-            t.data_base,
-            CAST(t.codigo_segmento AS STRING) as codigo_segmento,
-            COALESCE(sg.nome, ANY_VALUE(JSON_VALUE(t.metricas_raw, '$.Nome_do_segmento'))) as tipo,
+            data_base,
+            CAST(codigo_segmento AS STRING) as codigo_segmento,
+            ANY_VALUE(JSON_VALUE(metricas_raw, '$.Nome_do_segmento')) as tipo,
             
             SUM(
-                SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) + 
-                IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
-                IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
+                SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) + 
+                IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
+                IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
             ) as total_active_quotas,
 
             SUM(
                 (
-                    SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) + 
-                    IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
-                    IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
-                ) * SAFE_CAST(REPLACE(REPLACE(JSON_VALUE(t.metricas_raw, '$.Valor_médio_do_bem'), '.', ''), ',', '.') AS FLOAT64)
+                    SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) + 
+                    IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
+                    IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
+                ) * SAFE_CAST(REPLACE(REPLACE(JSON_VALUE(metricas_raw, '$.Valor_médio_do_bem'), '.', ''), ',', '.') AS FLOAT64)
             ) as total_volume_estimated,
 
             SUM(
-                IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
-                IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
+                IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
+                IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
             ) as total_default_quotas,
 
-            SUM(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_excluídas') AS INT64)) as total_dropouts,
+            SUM(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_excluídas') AS INT64)) as total_dropouts,
             
-            SUM(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_quitadas') AS INT64)) as total_quitadas
+            SUM(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_quitadas') AS INT64)) as total_quitadas
 
-        FROM \`consorcio_data.series_consolidadas\` t
-        LEFT JOIN LatestSegments sg ON sg.codigo_segmento = t.codigo_segmento
-        GROUP BY t.data_base, t.codigo_segmento, sg.nome
-        ORDER BY t.data_base ASC
+        FROM \`consorcio_data.series_consolidadas\`
+        GROUP BY data_base, codigo_segmento
+        ORDER BY data_base ASC
     `;
 
     try {
@@ -785,4 +788,51 @@ export const getDashboardData = functions.https.onCall(async (data, context) => 
         console.error("Dashboard Query Error", error);
         throw new functions.https.HttpsError('internal', error.message);
     }
+});
+
+// --- ACCESS CONTROL ---
+
+export const setupAdmin = functions.https.onCall(async (data, context) => {
+    // SECURITY: checks for a hardcoded setup key to prevent abuse
+    // In production, this function should be deleted after use.
+    const { email, password, setupKey } = data;
+
+    if (setupKey !== 'INTEL_SETUP_2026') {
+        throw new functions.https.HttpsError('permission-denied', 'Invalid Setup Key');
+    }
+
+    try {
+        // 1. Check if user exists
+        let userRecord;
+        try {
+            userRecord = await admin.auth().getUserByEmail(email);
+        } catch (e: any) {
+            if (e.code === 'auth/user-not-found') {
+                // Create user
+                userRecord = await admin.auth().createUser({
+                    email,
+                    password,
+                    emailVerified: true
+                });
+                console.log(`Created new user: ${email}`);
+            } else {
+                throw e;
+            }
+        }
+
+        // 2. Set Custom Claims
+        await admin.auth().setCustomUserClaims(userRecord.uid, { admin: true });
+
+        return { success: true, message: `User ${email} is now an ADMIN.` };
+
+    } catch (error: any) {
+        console.error("Setup Admin Error", error);
+        throw new functions.https.HttpsError('internal', error.message);
+    }
+});
+
+export const checkAdminStatus = functions.https.onCall(async (data, context) => {
+    if (!context.auth) return { isAdmin: false };
+    const token = context.auth.token;
+    return { isAdmin: !!token.admin };
 });

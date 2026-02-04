@@ -1,10 +1,22 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Permite acesso total (leitura e escrita) para fins de desenvolvimento/demo.
-    // O usuário solicitou explicitamente acesso anônimo sem restrições.
+    
+    // Helper to check admin
+    function isAdmin() {
+      return request.auth != null && request.auth.token.admin == true;
+    }
+
+    // Public Dashboard Data (Read Only)
+    match /series_consolidadas/{document=**} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // All other collections: Protected (Auth required for read, Admin for write)
     match /{document=**} {
-      allow read, write: if true;
+      allow read: if request.auth != null;
+      allow write: if isAdmin();
     }
   }
 }

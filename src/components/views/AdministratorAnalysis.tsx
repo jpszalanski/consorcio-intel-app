@@ -47,7 +47,10 @@ const getSegName = (code: string | number): string => {
   return `${c} - Outros`;
 };
 
+import { useAuth } from '../../hooks/useAuth';
+
 export const AdministratorAnalysis: React.FC = () => {
+  const { isAdmin } = useAuth();
   const [viewMode, setViewMode] = useState<'ranking' | 'detail' | 'comparison'>('ranking');
   const [adminAId, setAdminAId] = useState<string>('');
   const [adminBId, setAdminBId] = useState<string>('');
@@ -740,7 +743,7 @@ export const AdministratorAnalysis: React.FC = () => {
             </>
           )}
 
-          {viewMode === 'detail' && metricsA && (
+          {viewMode === 'detail' && metricsA && isAdmin && (
             <button
               onClick={handleGenerateReport}
               disabled={loadingAi}

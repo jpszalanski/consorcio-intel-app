@@ -9,13 +9,15 @@ import { RegionalAnalysis } from './components/views/RegionalAnalysis';
 import { DataImport } from './components/views/DataImport';
 import { FileControlView } from './components/views/FileControlView';
 import { PromptSettings } from './components/views/PromptSettings';
+import { LoginView } from './components/views/LoginView';
+import { AuthProvider, useAuth } from './hooks/useAuth';
 import { Menu, Loader2 } from 'lucide-react';
 import { dataStore } from './services/dataStore';
 
 import { ErrorBoundary } from 'react-error-boundary';
 import { ErrorFallback } from './components/common/ErrorBoundary';
 
-export default function App() {
+function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isMobileOpen, setIsMobileOpen] = useState(false);
 
@@ -33,14 +35,29 @@ export default function App() {
     checkAuth();
   }, []);
 
+  const { user, loading } = useAuth();
+  const [showLogin, setShowLogin] = useState(false);
+
+  useEffect(() => {
+    if (!loading && !user && activeTab !== 'dashboard') {
+      setShowLogin(true);
+    } else {
+      setShowLogin(false);
+    }
+  }, [user, activeTab, loading]);
+
   const renderContent = () => {
-    if (isLoading) {
+    if (isLoading || loading) {
       return (
         <div className="flex h-[80vh] items-center justify-center flex-col gap-4 text-slate-400">
           <Loader2 className="animate-spin text-blue-600" size={48} />
-          <p>Verificando conexão...</p>
+          <p>Carregando...</p>
         </div>
       );
+    }
+
+    if (showLogin) {
+      return <LoginView onLoginSuccess={() => setShowLogin(false)} />;
     }
 
     return (
@@ -108,5 +125,13 @@ export default function App() {
         </main>
       </div>
     </div>
+  );
+}
+
+export default function AppWrapper() {
+  return (
+    <AuthProvider>
+      <App />
+    </AuthProvider>
   );
 }

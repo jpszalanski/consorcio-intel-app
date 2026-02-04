@@ -49,14 +49,9 @@ export const ensureAuth = async (): Promise<User | null> => {
 
   if (user) return user;
 
-  try {
-    console.log("Iniciando nova sessão anônima...");
-    const userCredential = await signInAnonymously(auth);
-    return userCredential.user;
-  } catch (error: any) {
-    if (error.code !== 'auth/configuration-not-found' && error.code !== 'auth/operation-not-allowed') {
-      console.error("Falha na autenticação anônima:", error);
-    }
-    return null;
-  }
+  if (user) return user;
+
+  // REMOVED AUTO ANONYMOUS LOGIN
+  // We want strict login for protected features. Public features use "allow read: if true" (no auth needed).
+  return null;
 };

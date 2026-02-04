@@ -39,7 +39,10 @@ const SEGMENT_COLORS: Record<string, string> = {
   [String(BacenSegment.OUTROS_BENS)]: '#64748b'
 };
 
+import { useAuth } from '../../hooks/useAuth';
+
 export const DashboardOverview: React.FC = () => {
+  const { isAdmin } = useAuth();
   const [insightData, setInsightData] = useState<AIAnalysisResult | null>(null);
   const [loadingInsight, setLoadingInsight] = useState(false);
   const [period, setPeriod] = useState<PeriodOption>('1y');
@@ -216,14 +219,16 @@ export const DashboardOverview: React.FC = () => {
         </div>
         <div className="flex flex-col sm:flex-row gap-3">
           <PeriodSelector value={period} onChange={setPeriod} />
-          <button
-            onClick={handleGenerateInsight}
-            disabled={loadingInsight}
-            className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-6 py-3 rounded-xl font-bold shadow-lg transition-all disabled:opacity-50"
-          >
-            {loadingInsight ? <Loader2 className="animate-spin" size={18} /> : <Sparkles size={18} />}
-            Insights IA
-          </button>
+          {isAdmin && (
+            <button
+              onClick={handleGenerateInsight}
+              disabled={loadingInsight}
+              className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-6 py-3 rounded-xl font-bold shadow-lg transition-all disabled:opacity-50"
+            >
+              {loadingInsight ? <Loader2 className="animate-spin" size={18} /> : <Sparkles size={18} />}
+              Insights IA
+            </button>
+          )}
         </div>
       </div>
 
