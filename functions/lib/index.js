@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getRegionalData = exports.getOperationalData = exports.getAdministratorDetail = exports.getAdministratorData = exports.getTrendData = exports.reprocessFile = exports.deleteFile = exports.processFileUpload = void 0;
+exports.getDashboardData = exports.getRegionalData = exports.getOperationalData = exports.getAdministratorDetail = exports.getAdministratorData = exports.getTrendData = exports.reprocessFile = exports.deleteFile = exports.processFileUpload = void 0;
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 const os = require("os");
@@ -582,6 +582,49 @@ exports.getRegionalData = functions.https.onCall(async (data, context) => {
     }
     catch (error) {
         console.error("Regional Query Error", error);
+        throw new functions.https.HttpsError('internal', error.message);
+    }
+});
+exports.getDashboardData = functions.https.onCall(async (data, context) => {
+    const query = `
+        SELECT
+            data_base,
+            CAST(codigo_segmento AS STRING) as codigo_segmento,
+            ANY_VALUE(tipo) as tipo,
+            
+            SUM(
+                SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) + 
+                IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
+                IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
+            ) as total_active_quotas,
+
+            SUM(
+                (
+                    SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) + 
+                    IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
+                    IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
+                ) * SAFE_CAST(REPLACE(REPLACE(JSON_VALUE(metricas_raw, '$.Valor_médio_do_bem'), '.', ''), ',', '.') AS FLOAT64)
+            ) as total_volume_estimated,
+
+            SUM(
+                IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
+                IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
+            ) as total_default_quotas,
+
+            SUM(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_excluídas') AS INT64)) as total_dropouts,
+            
+            SUM(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_quitadas') AS INT64)) as total_quitadas
+
+        FROM \`consorcio_data.grupos_detalhados\`
+        GROUP BY data_base, codigo_segmento
+        ORDER BY data_base ASC
+    `;
+    try {
+        const [rows] = await bigquery.query({ query, location: LOCATION });
+        return { data: rows };
+    }
+    catch (error) {
+        console.error("Dashboard Query Error", error);
         throw new functions.https.HttpsError('internal', error.message);
     }
 });
