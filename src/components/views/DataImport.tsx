@@ -55,14 +55,32 @@ export const DataImport: React.FC = () => {
     return null;
   };
 
+  const detectHeavyFile = (fileName: string): boolean => {
+    // Files that are too large for browser processing
+    return /Bens_Moveis_Grupos/i.test(fileName);
+  };
+
   const readFileContent = (file: File): Promise<ProcessedFile> => {
     return new Promise((resolve) => {
+      // 1. Check for Heavy Files immediately
+      if (detectHeavyFile(file.name)) {
+        resolve({
+          file,
+          type: null,
+          data: [],
+          status: 'error',
+          errorMsg: 'ARQUIVO MUITO GRANDE: Use a aba Importação BigQuery'
+        });
+        return;
+      }
+
       const reader = new FileReader();
       reader.readAsText(file, 'windows-1252');
 
       reader.onload = async (e) => {
         try {
           const text = e.target?.result as string;
+          // ... rest of the logic
           const lines = text.split('\n');
           if (lines.length < 2) {
             resolve({ file, type: null, data: [], status: 'error', errorMsg: 'Arquivo vazio' });

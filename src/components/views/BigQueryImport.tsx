@@ -14,22 +14,43 @@ interface FileUploadStatus {
 }
 
 // Helper to extract metadata from filename
+// Helper to extract metadata from filename with STRICT validation
 const parseFileName = (fileName: string) => {
-    const name = fileName.toLowerCase();
+    const name = fileName; // No lowercasing, keep strict case if needed or just use ignoreCase flag
 
-    // Type Detection
+    // Strict Regex Patterns (Based on "ESTRUTURA DE DADOS.txt")
+    // Format: YYYYMM[Name].csv
+    // 1. Segmentos_Consolidados -> segments
+    // 2. Bens_Imoveis_Grupos -> real_estate
+    // 3. Bens_Moveis_Grupos -> moveis
+    // 4. Consorcios_UF -> regional_uf
+
+    const segmentsRegex = /^(\d{4})(\d{2})Segmentos_Consolidados/i;
+    const realEstateRegex = /^(\d{4})(\d{2})Bens_Imoveis_Grupos/i;
+    const moveisRegex = /^(\d{4})(\d{2})Bens_Moveis_Grupos/i;
+    const ufRegex = /^(\d{4})(\d{2})Consorcios_UF/i;
+
     let fileType = 'UNKNOWN';
-    if (name.includes('segmentos')) fileType = 'segments';
-    else if (name.includes('imoveis')) fileType = 'real_estate';
-    else if (name.includes('moveis')) fileType = 'moveis';
-    else if (name.includes('dadosporuf')) fileType = 'regional_uf';
-
-    // Date Detection (YYYYMM or YYYY-MM)
-    // Matches 202301, 2023-01 at start or following underscore
-    const dateMatch = name.match(/(?:^|_)(\d{4})[-]?(\d{2})(?:_|$)/);
     let referenceDate = null;
-    if (dateMatch) {
-        referenceDate = `${dateMatch[1]}-${dateMatch[2]}`; // YYYY-MM
+    let match = null;
+
+    if ((match = name.match(segmentsRegex))) {
+        fileType = 'segments';
+    } else if ((match = name.match(realEstateRegex))) {
+        fileType = 'real_estate';
+    } else if ((match = name.match(moveisRegex))) {
+        fileType = 'moveis';
+    } else if ((match = name.match(ufRegex))) {
+        fileType = 'regional_uf';
+    }
+
+    if (match) {
+        // match[1] = YYYY, match[2] = MM
+        referenceDate = `${match[1]}-${match[2]}`;
+    } else {
+        // Fallback for user convenience if strict fails but looks like a file (optional, but requested STRICT)
+        // User asked for STRICT validation: "OS NOMES DOS ARQUIVOS SAO PADRONIZADOS E VOCE DEVE VALIDAR COM O NOME PADRONIZADO"
+        // So we keep UNKNOWN if not matched.
     }
 
     return { fileType, referenceDate };
