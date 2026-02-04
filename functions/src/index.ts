@@ -249,21 +249,34 @@ export const processFileUpload = functions.storage.object().onFinalize(async (ob
     try {
         // BIGQUERY INSERTION
         // BIGQUERY INSERTION
+        // BIGQUERY INSERTION
         if (rowsToInsert.length > 0) {
             const tableId = rowsToInsert[0].table;
 
             // Ensure Infra (Create Dataset/Table if missing)
             await ensureInfrastructure(tableId);
 
-            // BigQuery insert accepts array of objects (the 'data' property)
             // Add uploaded_at timestamp
-            const rawData = rowsToInsert.map(r => ({
+            const fullDataset = rowsToInsert.map(r => ({
                 ...r.data,
                 uploaded_at: bigquery.timestamp(new Date())
             }));
 
-            await bigquery.dataset(DATASET_ID).table(tableId).insert(rawData);
-            console.log(`[SUCCESS] Inserted ${rawData.length} rows into ${DATASET_ID}.${tableId}`);
+            // BATCH INSERTION (Chunking to avoid 413 Request Too Large)
+            const BATCH_SIZE = 1000;
+            for (let i = 0; i < fullDataset.length; i += BATCH_SIZE) {
+                const batch = fullDataset.slice(i, i + BATCH_SIZE);
+                try {
+                    await bigquery.dataset(DATASET_ID).table(tableId).insert(batch);
+                    console.log(`[SUCCESS] Inserted batch ${i} - ${i + batch.length} into ${DATASET_ID}.${tableId}`);
+                } catch (batchErr: any) {
+                    console.error(`[ERROR] Failed to insert batch ${i} - ${i + batch.length}`, batchErr?.errors || batchErr);
+                    // Decide: Throw to stop, or continue? 
+                    // Throwing ensures we don't have partial data marked as success.
+                    throw batchErr;
+                }
+            }
+            console.log(`[SUCCESS] All ${fullDataset.length} rows inserted into ${DATASET_ID}.${tableId}`);
         }
 
         // 2. Success Report
