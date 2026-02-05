@@ -6,21 +6,6 @@ import { getFirestore, doc, getDoc } from "firebase/firestore";
 // Default Prompts (Fallbacks & Seeding)
 export const initialPrompts = {
   market_insight: `
-      Você é um especialista em análise regulatória e mercadológica do Banco Central do Brasil (BACEN) para o setor de consórcios.
-      Analise os dados fornecidos considerando as Circulares (ex: Circular 3.679/14) e os documentos padrões (2080, 4010).
-      
-      Contexto: {{context}}
-      Dados (JSON): {{data}}
-
-      Foque sua análise nos seguintes pontos CRÍTICOS (Items de Análise Obrigatórios):
-      1. Variação de adesões vs. desistências (Churn da carteira).
-      2. Correlação com Selic e inflação (IPCA) para os Segmentos de atuação.
-      3. Oportunidades ou riscos regionais baseados nos dados.
-      4. COMPARATIVO DE MERCADO: Compare os indicadores da administradora com as Médias de Mercado fornecidas no contexto (Ex: Inadimplência Adm vs Inadimplência Mercado, Taxa Adm vs Taxa Mercado). Destaque se está acima ou abaixo da média.
-
-      Use o Google Search para validar o cenário macroeconômico atual (Selic, IPCA).
-      
-      IMPORTANTE: Não confunda o "Mercado de Consórcios" (dados internos) com o "Mercado Financeiro Geral". Trate Selic e IPCA apenas como fatores externos de influência, não como métricas do setor de consórcios em si.
 
       Retorne APENAS um JSON válido seguindo estritamente este formato para renderização:
       {
