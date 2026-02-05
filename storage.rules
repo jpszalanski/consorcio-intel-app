@@ -1,10 +1,20 @@
-rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-    // Only Admin can write (upload/delete)
-    match /{allPaths=**} {
+    
+    // Helper
+    function isAdmin() {
+       return request.auth != null && (request.auth.token.admin == true || request.auth.token.email == 'jefersonszalanski@gmail.com');
+    }
+
+    // Allow uploads to raw-uploads directory
+    match /raw-uploads/{allPaths=**} {
       allow read: if request.auth != null;
-      allow write: if request.auth.token.admin == true;
+      allow write: if isAdmin();
+    }
+
+    // Default: Deny all others
+    match /{allPaths=**} {
+      allow read, write: if false; 
     }
   }
 }
