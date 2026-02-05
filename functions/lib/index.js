@@ -238,6 +238,7 @@ exports.processFileUpload = functions.storage.object().onFinalize(async (object)
     let importType = null;
     const nameNorm = normalizeKey(fileName);
     // Classification Logic
+    // Classification Logic
     if (nameNorm.includes('imoveis'))
         importType = 'real_estate';
     else if (nameNorm.includes('moveis'))
@@ -246,7 +247,8 @@ exports.processFileUpload = functions.storage.object().onFinalize(async (object)
         importType = 'segments';
     else if (nameNorm.includes('dadosporuf') || nameNorm.includes('consorciosuf') || (nameNorm.includes('uf') && !nameNorm.includes('imoveis') && !nameNorm.includes('moveis')))
         importType = 'regional_uf';
-    else if (nameNorm.includes('administradoras') || nameNorm.includes('doc4010') || nameNorm.includes('admconsorcio'))
+    // Robust check for ADMCONSORCIO (ignoring normalization issues)
+    else if (nameNorm.includes('administradoras') || nameNorm.includes('doc4010') || nameNorm.includes('admconsorcio') || fileName.toUpperCase().includes('ADMCONSORCIO'))
         importType = 'administrators';
     // --- STATUS REPORTING ---
     const db = admin.firestore();
@@ -258,10 +260,11 @@ exports.processFileUpload = functions.storage.object().onFinalize(async (object)
         fileType: importType || 'UNKNOWN',
         processedAt: admin.firestore.FieldValue.serverTimestamp(),
         status: 'PROCESSING',
-        rowsProcessed: 0
+        rowsProcessed: 0,
+        debugMetadata: { nameNorm, isExcel } // Added for debug
     }, { merge: true });
     if (!importType) {
-        await controlRef.update({ status: 'ERROR', errorDetails: 'Layout não detectado' });
+        await controlRef.update({ status: 'ERROR', errorDetails: `Layout não detectado para: ${fileName}` });
         fs.unlinkSync(tempFilePath);
         return console.error("Falha ao detectar layout.");
     }
@@ -275,6 +278,7 @@ exports.processFileUpload = functions.storage.object().onFinalize(async (object)
             if (rows.length < 2)
                 throw new Error("Arquivo Excel vazio ou sem cabeçalho");
             const headers = rows[0].map(h => String(h).trim());
+            console.log("XLSX Headers Detected:", headers); // DEBUG Headers
             rows.slice(1).forEach((rowVals) => {
                 const rowObj = headers.reduce((obj, header, i) => {
                     obj[header] = rowVals[i] !== null ? rowVals[i] : '';
@@ -323,8 +327,6 @@ exports.processFileUpload = functions.storage.object().onFinalize(async (object)
                 }
                 if (importType === 'real_estate')
                     mapped = mapDetailedGroup(row, 'imoveis', fileName);
-                if (importType === 'moveis')
-                    mapped = mapDetailedGroup(row, 'moveis', fileName);
                 if (importType === 'movables')
                     mapped = mapDetailedGroup(row, 'moveis', fileName);
                 if (importType === 'regional_uf')
@@ -364,12 +366,22 @@ exports.processFileUpload = functions.storage.object().onFinalize(async (object)
             console.log(`Keeping existing Reference Date from Filename: ${currentData.referenceDate}`);
             finalDate = currentData.referenceDate;
         }
-        await controlRef.update({
-            status: 'SUCCESS',
-            rowsProcessed: rowsToInsert.length,
-            referenceDate: finalDate,
-            bigQueryTable: ((_a = rowsToInsert[0]) === null || _a === void 0 ? void 0 : _a.table) || 'UNKNOWN'
-        });
+        if (rowsToInsert.length === 0) {
+            console.warn("Nenhuma linha válida foi extraída do arquivo.");
+            await controlRef.update({
+                status: 'WARNING',
+                errorDetails: 'Arquivo processado mas nenhuma linha foi importada. Verifique os cabeçalhos.',
+                rowsProcessed: 0
+            });
+        }
+        else {
+            await controlRef.update({
+                status: 'SUCCESS',
+                rowsProcessed: rowsToInsert.length,
+                referenceDate: finalDate,
+                bigQueryTable: ((_a = rowsToInsert[0]) === null || _a === void 0 ? void 0 : _a.table) || 'UNKNOWN'
+            });
+        }
     }
     catch (err) {
         console.error("Processing Error", err);

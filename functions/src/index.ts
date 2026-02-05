@@ -258,11 +258,13 @@ export const processFileUpload = functions.storage.object().onFinalize(async (ob
     const nameNorm = normalizeKey(fileName);
 
     // Classification Logic
+    // Classification Logic
     if (nameNorm.includes('imoveis')) importType = 'real_estate';
     else if (nameNorm.includes('moveis')) importType = 'movables';
     else if (nameNorm.includes('segmentos')) importType = 'segments';
     else if (nameNorm.includes('dadosporuf') || nameNorm.includes('consorciosuf') || (nameNorm.includes('uf') && !nameNorm.includes('imoveis') && !nameNorm.includes('moveis'))) importType = 'regional_uf';
-    else if (nameNorm.includes('administradoras') || nameNorm.includes('doc4010') || nameNorm.includes('admconsorcio')) importType = 'administrators';
+    // Robust check for ADMCONSORCIO (ignoring normalization issues)
+    else if (nameNorm.includes('administradoras') || nameNorm.includes('doc4010') || nameNorm.includes('admconsorcio') || fileName.toUpperCase().includes('ADMCONSORCIO')) importType = 'administrators';
 
     // --- STATUS REPORTING ---
     const db = admin.firestore();
@@ -275,11 +277,12 @@ export const processFileUpload = functions.storage.object().onFinalize(async (ob
         fileType: importType || 'UNKNOWN',
         processedAt: admin.firestore.FieldValue.serverTimestamp(),
         status: 'PROCESSING',
-        rowsProcessed: 0
+        rowsProcessed: 0,
+        debugMetadata: { nameNorm, isExcel } // Added for debug
     }, { merge: true });
 
     if (!importType) {
-        await controlRef.update({ status: 'ERROR', errorDetails: 'Layout não detectado' });
+        await controlRef.update({ status: 'ERROR', errorDetails: `Layout não detectado para: ${fileName}` });
         fs.unlinkSync(tempFilePath);
         return console.error("Falha ao detectar layout.");
     }
@@ -294,6 +297,7 @@ export const processFileUpload = functions.storage.object().onFinalize(async (ob
             // Assume Row 0 is Header
             if (rows.length < 2) throw new Error("Arquivo Excel vazio ou sem cabeçalho");
             const headers = (rows[0] as any[]).map(h => String(h).trim());
+            console.log("XLSX Headers Detected:", headers); // DEBUG Headers
 
             rows.slice(1).forEach((rowVals: any[]) => {
                 const rowObj = headers.reduce((obj: any, header: string, i: number) => {
@@ -341,7 +345,6 @@ export const processFileUpload = functions.storage.object().onFinalize(async (ob
                     if (segMapped) rowsToInsert.push(segMapped);
                 }
                 if (importType === 'real_estate') mapped = mapDetailedGroup(row, 'imoveis', fileName);
-                if (importType === 'moveis') mapped = mapDetailedGroup(row, 'moveis', fileName);
                 if (importType === 'movables') mapped = mapDetailedGroup(row, 'moveis', fileName);
                 if (importType === 'regional_uf') mapped = mapQuarterlyData(row, fileName);
                 if (importType === 'administrators') mapped = mapAdministrators(row, fileName);
@@ -387,13 +390,21 @@ export const processFileUpload = functions.storage.object().onFinalize(async (ob
             finalDate = currentData.referenceDate;
         }
 
-        await controlRef.update({
-            status: 'SUCCESS',
-            rowsProcessed: rowsToInsert.length,
-            referenceDate: finalDate,
-            bigQueryTable: rowsToInsert[0]?.table || 'UNKNOWN'
-        });
-
+        if (rowsToInsert.length === 0) {
+            console.warn("Nenhuma linha válida foi extraída do arquivo.");
+            await controlRef.update({
+                status: 'WARNING',
+                errorDetails: 'Arquivo processado mas nenhuma linha foi importada. Verifique os cabeçalhos.',
+                rowsProcessed: 0
+            });
+        } else {
+            await controlRef.update({
+                status: 'SUCCESS',
+                rowsProcessed: rowsToInsert.length,
+                referenceDate: finalDate,
+                bigQueryTable: rowsToInsert[0]?.table || 'UNKNOWN'
+            });
+        }
     } catch (err: any) {
         console.error("Processing Error", err);
         await controlRef.update({
