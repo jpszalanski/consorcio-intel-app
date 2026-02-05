@@ -5,7 +5,8 @@ import { predictDemand } from '../../services/geminiService';
 import { BacenSegment, AppDataStore } from '../../types';
 import { BrainCircuit, TrendingUp, Filter, DollarSign, Users, BarChart2, Loader2 } from 'lucide-react';
 import { PeriodSelector, PeriodOption } from '../common/PeriodSelector';
-import { getFunctions, httpsCallable } from 'firebase/functions';
+import { httpsCallable } from 'firebase/functions';
+import { functions } from '../../services/firebase';
 
 
 
@@ -58,7 +59,7 @@ export const TrendAnalysis: React.FC = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const functions = getFunctions();
+
         const getTrend = httpsCallable<unknown, { data: TrendRow[] }>(functions, 'getTrendData');
         const result = await getTrend();
         setRawData(result.data.data);

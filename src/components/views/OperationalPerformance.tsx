@@ -6,7 +6,8 @@ import {
   ScatterChart, Scatter, ZAxis, Legend, Cell, PieChart, Pie
 } from 'recharts';
 import { Activity, ArrowRightLeft, TrendingDown, Search, Scale, Loader2 } from 'lucide-react';
-import { getFunctions, httpsCallable } from 'firebase/functions';
+import { httpsCallable } from 'firebase/functions';
+import { functions } from '../../services/firebase';
 
 
 
@@ -41,7 +42,7 @@ export const OperationalPerformance: React.FC = () => {
   useEffect(() => {
     const fetchMarket = async () => {
       try {
-        const functions = getFunctions();
+
         const getOps = httpsCallable<{ mode: string }, { data: MarketScatterRow[] }>(functions, 'getOperationalData');
         const result = await getOps({ mode: 'market' });
         setScatterData(result.data.data);
@@ -60,7 +61,7 @@ export const OperationalPerformance: React.FC = () => {
     const fetchDetail = async () => {
       setLoadingDetail(true);
       try {
-        const functions = getFunctions();
+
         const getOps = httpsCallable<{ mode: string; cnpj: string }, { data: AdminDetailRow[] }>(functions, 'getOperationalData');
         const result = await getOps({ mode: 'detail', cnpj: selectedAdminId });
         setDetailRows(result.data.data);

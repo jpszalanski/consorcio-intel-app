@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
-import { getFunctions, httpsCallable } from 'firebase/functions';
+import { httpsCallable } from 'firebase/functions';
+import { functions } from '../../services/firebase';
 import { db } from '../../services/firebase';
 import { IMPORT_DEFINITIONS, getYearOptions } from '../../types/uploadTypes';
 import {
@@ -64,7 +65,7 @@ export const FileControlView: React.FC = () => {
         if (!confirm(`Reprocessar ${selectedFile.fileName}?`)) return;
         setProcessingId(selectedFile.id);
         try {
-            const functions = getFunctions();
+
             const reprocess = httpsCallable(functions, 'reprocessFile');
             await reprocess({ storagePath: selectedFile.storagePath });
             alert('Reprocessamento iniciado!');
@@ -81,7 +82,7 @@ export const FileControlView: React.FC = () => {
         if (!confirm(`Excluir arquivo ${selectedFile.fileName}?`)) return;
         setProcessingId(selectedFile.id);
         try {
-            const functions = getFunctions();
+
             const del = httpsCallable(functions, 'deleteFile');
             await del({ fileId: selectedFile.id, storagePath: selectedFile.storagePath });
             setSelectedFile(null); // Close modal
@@ -157,8 +158,8 @@ export const FileControlView: React.FC = () => {
                                                 <button
                                                     onClick={() => setSelectedFile(record)}
                                                     className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all mx-auto shadow-sm hover:shadow-md hover:scale-105 active:scale-95 ${record.status === 'SUCCESS' ? 'bg-green-100 text-green-600' :
-                                                            record.status === 'ERROR' ? 'bg-red-100 text-red-600' :
-                                                                'bg-blue-100 text-blue-600 animate-pulse'
+                                                        record.status === 'ERROR' ? 'bg-red-100 text-red-600' :
+                                                            'bg-blue-100 text-blue-600 animate-pulse'
                                                         }`}
                                                 >
                                                     {record.status === 'SUCCESS' && <CheckCircle2 size={20} />}
@@ -203,8 +204,8 @@ export const FileControlView: React.FC = () => {
                         <div className="p-6 space-y-4">
                             <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg">
                                 <div className={`p-2 rounded-full ${selectedFile.status === 'SUCCESS' ? 'bg-green-100 text-green-600' :
-                                        selectedFile.status === 'ERROR' ? 'bg-red-100 text-red-600' :
-                                            'bg-blue-100 text-blue-600'
+                                    selectedFile.status === 'ERROR' ? 'bg-red-100 text-red-600' :
+                                        'bg-blue-100 text-blue-600'
                                     }`}>
                                     {selectedFile.status === 'SUCCESS' && <CheckCircle2 size={20} />}
                                     {selectedFile.status === 'ERROR' && <AlertCircle size={20} />}

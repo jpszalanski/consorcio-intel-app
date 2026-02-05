@@ -5,7 +5,8 @@ import { Sparkles, Loader2, Database, TrendingUp, TrendingDown, Minus, AlertCirc
 import { PeriodSelector, PeriodOption } from '../common/PeriodSelector';
 import { BacenSegment } from '../../types';
 import { useAuth } from '../../hooks/useAuth';
-import { getFunctions, httpsCallable } from 'firebase/functions';
+import { httpsCallable } from 'firebase/functions';
+import { functions } from '../../services/firebase';
 
 // --- INTERFACES MATCHING BACKEND ---
 interface SegmentData {
@@ -142,7 +143,7 @@ export const DashboardOverview: React.FC = () => {
     const fetchData = async () => {
       setLoading(true);
       try {
-        const functions = getFunctions();
+
         const getDashboard = httpsCallable<unknown, DashboardData>(functions, 'getDashboardData');
         const result = await getDashboard();
         setData(result.data);
@@ -204,7 +205,18 @@ export const DashboardOverview: React.FC = () => {
   };
 
   if (loading) return <div className="flex h-[70vh] items-center justify-center"><Loader2 className="animate-spin text-blue-600" size={48} /></div>;
-  if (!data) return <div className="p-10 text-center">Sem dados.</div>;
+  if (!data || !data.summary || Object.keys(data.summary).length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-[60vh] text-slate-500 gap-4">
+        <Database size={48} className="text-slate-300" />
+        <h3 className="text-lg font-bold text-slate-700">Nenhum dado encontrado</h3>
+        <p className="max-w-md text-center">Para visualizar o painel, é necessário importar os dados do consórcio (arquivos .xlsx ou .csv).</p>
+        <a href="/import" className="bg-blue-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-blue-700 transition-colors">
+          Ir para Importação
+        </a>
+      </div>
+    );
+  }
 
   const { summary, segments } = data;
 

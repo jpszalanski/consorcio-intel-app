@@ -50,8 +50,9 @@ export const DataImport: React.FC = () => {
 
               try {
                 // We need access to functions here. Assuming imported from firebase/functions
-                const { getFunctions, httpsCallable } = await import('firebase/functions');
-                const functions = getFunctions();
+                const { httpsCallable } = await import('firebase/functions');
+                const { functions } = await import('../../services/firebase');
+
                 const reset = httpsCallable(functions, 'resetSystemData');
 
                 await reset();

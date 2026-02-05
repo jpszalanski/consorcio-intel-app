@@ -2,7 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.checkAdminStatus = exports.setupAdmin = exports.getRegionalData = exports.getOperationalData = exports.getAdministratorDetail = exports.getAdministratorData = exports.getTrendData = exports.getDashboardData = exports.resetSystemData = exports.reprocessFile = exports.deleteFile = exports.processFileUpload = void 0;
 const functions = require("firebase-functions");
-const storage_1 = require("firebase-functions/v2/storage");
+const v1 = require("firebase-functions/v1");
 const v2_1 = require("firebase-functions/v2");
 const admin = require("firebase-admin");
 const os = require("os");
@@ -13,8 +13,9 @@ const bigquery_1 = require("@google-cloud/bigquery");
 const node_1 = require("read-excel-file/node");
 const bigquery = new bigquery_1.BigQuery();
 const DATASET_ID = 'consorcio_data';
-const LOCATION = 'us-central1'; // Configure as needed
-(0, v2_1.setGlobalOptions)({ region: LOCATION });
+const FUNCTION_REGION = 'us-east1';
+const BQ_LOCATION = 'us-east1';
+(0, v2_1.setGlobalOptions)({ region: FUNCTION_REGION });
 // --- SCHEMAS ---
 const SCHEMAS = {
     'series_consolidadas': [
@@ -63,7 +64,7 @@ const ensureInfrastructure = async (tableId) => {
     const [datasetExists] = await dataset.exists();
     if (!datasetExists) {
         console.log(`Creating dataset: ${DATASET_ID}`);
-        await bigquery.createDataset(DATASET_ID, { location: LOCATION });
+        await bigquery.createDataset(DATASET_ID, { location: BQ_LOCATION });
     }
     // 2. Ensure Table
     const table = dataset.table(tableId);
@@ -223,9 +224,10 @@ const mapSegmentos = (row, fileName) => {
     };
 };
 // --- CLOUD FUNCTION ---
-exports.processFileUpload = (0, storage_1.onObjectFinalized)({ region: 'us-central1' }, async (event) => {
+exports.processFileUpload = v1.region('us-east1').storage.object().onFinalize(async (object) => {
     var _a;
-    const object = event.data;
+    // const object = event.data; // V2 style
+    // V1 style: object is passed directly
     const filePath = object.name;
     const bucket = admin.storage().bucket(object.bucket);
     if (!filePath || !filePath.startsWith("raw-uploads/")) {
@@ -417,7 +419,7 @@ exports.deleteFile = functions.https.onCall(async (request) => {
                 const query = `DELETE FROM \`${DATASET_ID}.${tableId}\` WHERE file_name = @fileName`;
                 await bigquery.query({
                     query,
-                    location: LOCATION,
+                    location: BQ_LOCATION,
                     params: { fileName }
                 });
                 console.log(`Deleted rows from ${tableId} for ${fileName}`);
@@ -475,7 +477,7 @@ exports.resetSystemData = functions.https.onCall(async (request) => {
         for (const tableId of tables) {
             try {
                 const query = `DROP TABLE IF EXISTS \`${DATASET_ID}.${tableId}\``;
-                await bigquery.query({ query, location: LOCATION });
+                await bigquery.query({ query, location: BQ_LOCATION });
                 console.log(`Dropped table: ${tableId}`);
             }
             catch (bqErr) {
@@ -544,7 +546,7 @@ exports.getDashboardData = functions.https.onCall(async (request) => {
         LIMIT 400
     `;
     try {
-        const [rows] = await bigquery.query({ query, location: LOCATION });
+        const [rows] = await bigquery.query({ query, location: BQ_LOCATION });
         if (!rows || rows.length === 0) {
             return { summary: {}, segments: [], history: [] };
         }
@@ -630,6 +632,10 @@ exports.getDashboardData = functions.https.onCall(async (request) => {
         };
     }
     catch (error) {
+        if (error.message.includes('Not found') || error.code === 404) {
+            console.warn("Dataset or Table not found, returning empty dashboard.");
+            return { summary: {}, segments: [], history: [] };
+        }
         console.error("Dashboard Query Error", error);
         throw new functions.https.HttpsError('internal', error.message);
     }
@@ -672,7 +678,7 @@ exports.getTrendData = functions.https.onCall(async (request) => {
         ORDER BY data_base ASC
     `;
     try {
-        const [rows] = await bigquery.query({ query, location: LOCATION });
+        const [rows] = await bigquery.query({ query, location: BQ_LOCATION });
         return { data: rows };
     }
     catch (error) {
@@ -727,6 +733,11 @@ exports.getAdministratorData = functions.https.onCall(async (request) => {
                 SAFE_CAST(REPLACE(REPLACE(JSON_VALUE(t.metricas_raw, '$.Taxa_de_administração'), '.', ''), ',', '.') AS FLOAT64)
             ) as totalFeesWeighted,
             
+            SUM(
+                (
+                    SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) + 
+                    IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
+                    IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
                 ) * SAFE_CAST(REPLACE(REPLACE(JSON_VALUE(t.metricas_raw, '$.Valor_médio_do_bem'), '.', ''), ',', '.') AS FLOAT64) * 
                 COALESCE(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Prazo_do_grupo_em_meses') AS FLOAT64), 0)
             ) as totalTermWeighted
@@ -739,7 +750,7 @@ exports.getAdministratorData = functions.https.onCall(async (request) => {
         ORDER BY totalBalance DESC
     `;
     try {
-        const [rows] = await bigquery.query({ query, location: LOCATION });
+        const [rows] = await bigquery.query({ query, location: BQ_LOCATION });
         return { data: rows };
     }
     catch (error) {
@@ -815,7 +826,7 @@ exports.getAdministratorDetail = functions.https.onCall(async (request) => {
     try {
         const [rows] = await bigquery.query({
             query,
-            location: LOCATION,
+            location: BQ_LOCATION,
             params: { cnpj }
         });
         return { data: rows };
@@ -873,7 +884,7 @@ exports.getOperationalData = functions.https.onCall(async (request) => {
 `;
     }
     try {
-        const [rows] = await bigquery.query({ query, location: LOCATION, params });
+        const [rows] = await bigquery.query({ query, location: BQ_LOCATION, params });
         return { data: rows };
     }
     catch (error) {
@@ -901,7 +912,7 @@ exports.getRegionalData = functions.https.onCall(async (request) => {
         ORDER BY totalActive DESC
     `;
     try {
-        const [rows] = await bigquery.query({ query, location: LOCATION });
+        const [rows] = await bigquery.query({ query, location: BQ_LOCATION });
         return { data: rows };
     }
     catch (error) {

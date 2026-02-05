@@ -9,7 +9,8 @@ import {
   ListChecks, Users, Sparkles, ChevronRight, Loader2, Target, History, Calendar
 } from 'lucide-react';
 import { generateMarketInsight, AIAnalysisResult } from '../../services/geminiService';
-import { getFunctions, httpsCallable } from 'firebase/functions';
+import { httpsCallable } from 'firebase/functions';
+import { functions } from '../../services/firebase';
 import { getFirestore, collection, addDoc, query, where, orderBy, getDocs, Timestamp } from 'firebase/firestore';
 
 
@@ -76,7 +77,7 @@ export const AdministratorAnalysis: React.FC = () => {
   useEffect(() => {
     const fetchRanking = async () => {
       try {
-        const functions = getFunctions();
+
         const getRanking = httpsCallable<unknown, { data: AdminRankingRow[] }>(functions, 'getAdministratorData');
         const result = await getRanking();
         setRankingData(result.data.data);
@@ -96,7 +97,7 @@ export const AdministratorAnalysis: React.FC = () => {
     const fetchDetail = async () => {
       setLoadingDetail(true);
       try {
-        const functions = getFunctions();
+
         const getDetail = httpsCallable<{ cnpj: string }, { data: AdminDetailRow[] }>(functions, 'getAdministratorDetail');
 
         // Fetch A

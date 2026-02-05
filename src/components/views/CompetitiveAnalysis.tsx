@@ -2,7 +2,8 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, Legend, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { PeriodSelector, PeriodOption } from '../common/PeriodSelector';
 import { AppDataStore } from '../../types';
-import { getFunctions, httpsCallable } from 'firebase/functions';
+import { httpsCallable } from 'firebase/functions';
+import { functions } from '../../services/firebase';
 import { Loader2 } from 'lucide-react';
 
 
@@ -23,7 +24,7 @@ export const CompetitiveAnalysis: React.FC = () => {
   useEffect(() => {
     const fetchRanking = async () => {
       try {
-        const functions = getFunctions();
+
         const getRanking = httpsCallable<unknown, { data: AdminRankingRow[] }>(functions, 'getAdministratorData');
         const result = await getRanking();
         setRankingData(result.data.data);

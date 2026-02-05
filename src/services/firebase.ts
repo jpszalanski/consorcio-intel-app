@@ -7,6 +7,7 @@ import {
   persistentMultipleTabManager
 } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
+import { getFunctions } from 'firebase/functions';
 
 // Configuração do Firebase Consórcio Intel
 const firebaseConfig = {
@@ -35,6 +36,9 @@ export const db = initializeFirestore(app, {
 
 // Inicializa Storage
 export const storage = getStorage(app);
+
+// Inicializa Functions (us-central1)
+export const functions = getFunctions(app, 'us-east1');
 
 // Função auxiliar para garantir autenticação antes de chamadas ao Firestore
 export const ensureAuth = async (): Promise<User | null> => {

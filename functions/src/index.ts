@@ -1,5 +1,6 @@
 import * as functions from "firebase-functions";
-import { onObjectFinalized } from "firebase-functions/v2/storage";
+import * as v1 from "firebase-functions/v1";
+
 import { setGlobalOptions } from "firebase-functions/v2";
 import * as admin from "firebase-admin";
 import * as os from "os";
@@ -11,8 +12,9 @@ import readXlsxFile from 'read-excel-file/node';
 
 const bigquery = new BigQuery();
 const DATASET_ID = 'consorcio_data';
-const LOCATION = 'us-central1'; // Configure as needed
-setGlobalOptions({ region: LOCATION });
+const FUNCTION_REGION = 'us-east1';
+const BQ_LOCATION = 'us-east1';
+setGlobalOptions({ region: FUNCTION_REGION });
 
 // --- SCHEMAS ---
 const SCHEMAS: any = {
@@ -63,7 +65,7 @@ const ensureInfrastructure = async (tableId: string) => {
     const [datasetExists] = await dataset.exists();
     if (!datasetExists) {
         console.log(`Creating dataset: ${DATASET_ID}`);
-        await bigquery.createDataset(DATASET_ID, { location: LOCATION });
+        await bigquery.createDataset(DATASET_ID, { location: BQ_LOCATION });
     }
 
     // 2. Ensure Table
@@ -237,8 +239,9 @@ const mapSegmentos = (row: any, fileName: string) => {
 
 // --- CLOUD FUNCTION ---
 
-export const processFileUpload = onObjectFinalized({ region: 'us-central1' }, async (event) => {
-    const object = event.data;
+export const processFileUpload = v1.region('us-east1').storage.object().onFinalize(async (object) => {
+    // const object = event.data; // V2 style
+    // V1 style: object is passed directly
     const filePath = object.name;
     const bucket = admin.storage().bucket(object.bucket);
 
@@ -446,7 +449,7 @@ export const deleteFile = functions.https.onCall(async (request) => {
                 const query = `DELETE FROM \`${DATASET_ID}.${tableId}\` WHERE file_name = @fileName`;
                 await bigquery.query({
                     query,
-                    location: LOCATION,
+                    location: BQ_LOCATION,
                     params: { fileName }
                 });
                 console.log(`Deleted rows from ${tableId} for ${fileName}`);
@@ -502,7 +505,7 @@ export const resetSystemData = functions.https.onCall(async (request) => {
         for (const tableId of tables) {
             try {
                 const query = `DROP TABLE IF EXISTS \`${DATASET_ID}.${tableId}\``;
-                await bigquery.query({ query, location: LOCATION });
+                await bigquery.query({ query, location: BQ_LOCATION });
                 console.log(`Dropped table: ${tableId}`);
             } catch (bqErr: any) {
                 console.warn(`Failed to drop ${tableId}:`, bqErr.message);
@@ -573,7 +576,7 @@ export const getDashboardData = functions.https.onCall(async (request) => {
     `;
 
     try {
-        const [rows] = await bigquery.query({ query, location: LOCATION });
+        const [rows] = await bigquery.query({ query, location: BQ_LOCATION });
 
         if (!rows || rows.length === 0) {
             return { summary: {}, segments: [], history: [] };
@@ -675,6 +678,10 @@ export const getDashboardData = functions.https.onCall(async (request) => {
         };
 
     } catch (error: any) {
+        if (error.message.includes('Not found') || error.code === 404) {
+            console.warn("Dataset or Table not found, returning empty dashboard.");
+            return { summary: {}, segments: [], history: [] };
+        }
         console.error("Dashboard Query Error", error);
         throw new functions.https.HttpsError('internal', error.message);
     }
@@ -720,7 +727,7 @@ export const getTrendData = functions.https.onCall(async (request) => {
     `;
 
     try {
-        const [rows] = await bigquery.query({ query, location: LOCATION });
+        const [rows] = await bigquery.query({ query, location: BQ_LOCATION });
         return { data: rows };
     } catch (error: any) {
         console.error("Trend Query Error", error);
@@ -775,6 +782,11 @@ export const getAdministratorData = functions.https.onCall(async (request) => {
                 SAFE_CAST(REPLACE(REPLACE(JSON_VALUE(t.metricas_raw, '$.Taxa_de_administração'), '.', ''), ',', '.') AS FLOAT64)
             ) as totalFeesWeighted,
             
+            SUM(
+                (
+                    SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) + 
+                    IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
+                    IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
                 ) * SAFE_CAST(REPLACE(REPLACE(JSON_VALUE(t.metricas_raw, '$.Valor_médio_do_bem'), '.', ''), ',', '.') AS FLOAT64) * 
                 COALESCE(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Prazo_do_grupo_em_meses') AS FLOAT64), 0)
             ) as totalTermWeighted
@@ -788,7 +800,7 @@ export const getAdministratorData = functions.https.onCall(async (request) => {
     `;
 
     try {
-        const [rows] = await bigquery.query({ query, location: LOCATION });
+        const [rows] = await bigquery.query({ query, location: BQ_LOCATION });
         return { data: rows };
     } catch (error: any) {
         console.error("Admin Query Error", error);
@@ -866,7 +878,7 @@ export const getAdministratorDetail = functions.https.onCall(async (request) => 
     try {
         const [rows] = await bigquery.query({
             query,
-            location: LOCATION,
+            location: BQ_LOCATION,
             params: { cnpj }
         });
         return { data: rows };
@@ -926,7 +938,7 @@ export const getOperationalData = functions.https.onCall(async (request) => {
     }
 
     try {
-        const [rows] = await bigquery.query({ query, location: LOCATION, params });
+        const [rows] = await bigquery.query({ query, location: BQ_LOCATION, params });
         return { data: rows };
     } catch (error: any) {
         console.error("Operational Query Error", error);
@@ -955,7 +967,7 @@ export const getRegionalData = functions.https.onCall(async (request) => {
     `;
 
     try {
-        const [rows] = await bigquery.query({ query, location: LOCATION });
+        const [rows] = await bigquery.query({ query, location: BQ_LOCATION });
         return { data: rows };
     } catch (error: any) {
         console.error("Regional Query Error", error);

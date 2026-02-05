@@ -2,7 +2,8 @@ import React, { useMemo, useState, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, Legend, PieChart, Pie, CartesianGrid } from 'recharts';
 import { AppDataStore } from '../../types';
 import { Map as MapIcon, Loader2, Database } from 'lucide-react';
-import { getFunctions, httpsCallable } from 'firebase/functions';
+import { httpsCallable } from 'firebase/functions';
+import { functions } from '../../services/firebase';
 
 
 
@@ -25,7 +26,7 @@ export const RegionalAnalysis: React.FC = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const functions = getFunctions();
+
         const getRegional = httpsCallable<unknown, { data: RegionalViewData[] }>(functions, 'getRegionalData');
         const result = await getRegional();
         setAggregatedData(result.data.data);
