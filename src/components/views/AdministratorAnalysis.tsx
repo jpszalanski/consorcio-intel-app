@@ -185,8 +185,8 @@ export const AdministratorAnalysis: React.FC = () => {
       s.defContemplated += defCont; s.defNonContemplated += defNon; s.dropouts += drops;
     });
 
-    const avgAdminFee = totalActive > 0 ? sumFees / totalActive : 0;
-    const avgTerm = totalActive > 0 ? sumTerm / totalActive : 0;
+    const avgAdminFee = totalBalance > 0 ? sumFees / totalBalance : 0;
+    const avgTerm = totalBalance > 0 ? sumTerm / totalBalance : 0;
     const defaultRate = totalActive > 0 ? (sumDefaults / totalActive) * 100 : 0;
     const avgTicket = totalActive > 0 ? totalBalance / totalActive : 0;
 
@@ -194,7 +194,7 @@ export const AdministratorAnalysis: React.FC = () => {
       name,
       balance: stats.balance,
       active: stats.active,
-      avgFee: stats.active > 0 ? stats.fees / stats.active : 0,
+      avgFee: stats.balance > 0 ? stats.fees / stats.balance : 0,
       defaultRate: stats.active > 0 ? (stats.defaults / stats.active) * 100 : 0,
       defContemplated: stats.active > 0 ? (stats.defContemplated / stats.active) * 100 : 0,
       defNonContemplated: stats.active > 0 ? (stats.defNonContemplated / stats.active) * 100 : 0,
@@ -223,16 +223,19 @@ export const AdministratorAnalysis: React.FC = () => {
     // Note: rankingData doesn't currently have Fees in the interface, only Weighted Fees?
     // Let's check AdminRankingRow interface. It has totalFeesWeighted.
     let totalMarketFeesW = 0;
+    let totalMarketBalance = 0;
 
     rankingData.forEach(r => {
       const act = Number(r.totalActive) || 0;
       totalMarketActive += act;
+      totalMarketBalance += (Number(r.totalBalance) || 0);
       totalMarketDefaults += (Number(r.totalDefaults) || 0);
       totalMarketFeesW += (Number(r.totalFeesWeighted) || 0);
     });
 
     const marketAvgDefault = totalMarketActive > 0 ? (totalMarketDefaults / totalMarketActive) * 100 : 0;
-    const marketAvgFee = totalMarketActive > 0 ? (totalMarketFeesW / totalMarketActive) : 0;
+    const marketAvgFee = totalMarketBalance > 0 ? (totalMarketFeesW / totalMarketBalance) : 0;
+
 
     const context = `
       Relatório Adm: ${metricsA.name}.

@@ -2,6 +2,8 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.checkAdminStatus = exports.setupAdmin = exports.getRegionalData = exports.getOperationalData = exports.getAdministratorDetail = exports.getAdministratorData = exports.getTrendData = exports.getDashboardData = exports.resetSystemData = exports.reprocessFile = exports.deleteFile = exports.processFileUpload = void 0;
 const functions = require("firebase-functions");
+const storage_1 = require("firebase-functions/v2/storage");
+const v2_1 = require("firebase-functions/v2");
 const admin = require("firebase-admin");
 const os = require("os");
 const path = require("path");
@@ -11,7 +13,8 @@ const bigquery_1 = require("@google-cloud/bigquery");
 const node_1 = require("read-excel-file/node");
 const bigquery = new bigquery_1.BigQuery();
 const DATASET_ID = 'consorcio_data';
-const LOCATION = 'US'; // Configure as needed
+const LOCATION = 'us-central1'; // Configure as needed
+(0, v2_1.setGlobalOptions)({ region: LOCATION });
 // --- SCHEMAS ---
 const SCHEMAS = {
     'series_consolidadas': [
@@ -220,8 +223,9 @@ const mapSegmentos = (row, fileName) => {
     };
 };
 // --- CLOUD FUNCTION ---
-exports.processFileUpload = functions.storage.object().onFinalize(async (object) => {
+exports.processFileUpload = (0, storage_1.onObjectFinalized)({ region: 'us-central1' }, async (event) => {
     var _a;
+    const object = event.data;
     const filePath = object.name;
     const bucket = admin.storage().bucket(object.bucket);
     if (!filePath || !filePath.startsWith("raw-uploads/")) {
@@ -393,13 +397,13 @@ exports.processFileUpload = functions.storage.object().onFinalize(async (object)
     if (fs.existsSync(tempFilePath))
         fs.unlinkSync(tempFilePath);
 });
-exports.deleteFile = functions.https.onCall(async (data, context) => {
+exports.deleteFile = functions.https.onCall(async (request) => {
     var _a, _b;
     // Check Auth - Admin Only
-    if (!((_b = (_a = context.auth) === null || _a === void 0 ? void 0 : _a.token) === null || _b === void 0 ? void 0 : _b.admin)) {
+    if (!((_b = (_a = request.auth) === null || _a === void 0 ? void 0 : _a.token) === null || _b === void 0 ? void 0 : _b.admin)) {
         throw new functions.https.HttpsError('permission-denied', 'Admin access required');
     }
-    const { fileId, storagePath } = data;
+    const { fileId, storagePath } = request.data;
     if (!fileId || !storagePath)
         throw new functions.https.HttpsError('invalid-argument', 'Missing fileId or storagePath');
     const db = admin.firestore();
@@ -438,12 +442,12 @@ exports.deleteFile = functions.https.onCall(async (data, context) => {
         throw new functions.https.HttpsError('internal', error.message);
     }
 });
-exports.reprocessFile = functions.https.onCall(async (data, context) => {
+exports.reprocessFile = functions.https.onCall(async (request) => {
     var _a, _b;
-    if (!((_b = (_a = context.auth) === null || _a === void 0 ? void 0 : _a.token) === null || _b === void 0 ? void 0 : _b.admin)) {
+    if (!((_b = (_a = request.auth) === null || _a === void 0 ? void 0 : _a.token) === null || _b === void 0 ? void 0 : _b.admin)) {
         throw new functions.https.HttpsError('permission-denied', 'Admin access required');
     }
-    const { storagePath } = data;
+    const { storagePath } = request.data;
     if (!storagePath)
         throw new functions.https.HttpsError('invalid-argument', 'Missing storagePath');
     const storage = admin.storage();
@@ -459,9 +463,9 @@ exports.reprocessFile = functions.https.onCall(async (data, context) => {
         throw new functions.https.HttpsError('internal', error.message);
     }
 });
-exports.resetSystemData = functions.https.onCall(async (data, context) => {
+exports.resetSystemData = functions.https.onCall(async (request) => {
     var _a, _b;
-    if (!((_b = (_a = context.auth) === null || _a === void 0 ? void 0 : _a.token) === null || _b === void 0 ? void 0 : _b.admin)) {
+    if (!((_b = (_a = request.auth) === null || _a === void 0 ? void 0 : _a.token) === null || _b === void 0 ? void 0 : _b.admin)) {
         throw new functions.https.HttpsError('permission-denied', 'Admin access required');
     }
     const db = admin.firestore();
@@ -499,24 +503,20 @@ exports.resetSystemData = functions.https.onCall(async (data, context) => {
     }
 });
 // --- DASHBOARD QUERY UPDATED ---
-exports.getDashboardData = functions.https.onCall(async (data, context) => {
-    var _a;
+exports.getDashboardData = functions.https.onCall(async (request) => {
     // UPDATED QUERY TO MATCH USER DEFINITIONS: Active Quotas, Volume, Vars
     const query = `
-    WITH Consolidated AS (
         SELECT
             data_base,
             codigo_segmento,
             ANY_VALUE(JSON_VALUE(metricas_raw, '$.Nome_do_segmento')) as nome_segmento,
             
-            -- Active Quotas
             SUM(
                 COALESCE(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64), 0) + 
                 COALESCE(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
                 COALESCE(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
             ) as total_active_quotas,
 
-            -- Volume
             SUM(
                 (
                     COALESCE(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64), 0) + 
@@ -525,77 +525,87 @@ exports.getDashboardData = functions.https.onCall(async (data, context) => {
                 ) * COALESCE(SAFE_CAST(REPLACE(REPLACE(JSON_VALUE(metricas_raw, '$.Valor_médio_do_bem'), '.', ''), ',', '.') AS FLOAT64), 0)
             ) as total_volume,
 
-            -- Taxa Adm (Media)
             AVG(SAFE_CAST(REPLACE(REPLACE(JSON_VALUE(metricas_raw, '$.Taxa_de_administração'), '.', ''), ',', '.') AS FLOAT64)) as avg_admin_fee,
 
-            -- Inadimplência Numerator (Total)
             SUM(
                 COALESCE(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
                 COALESCE(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
             ) as total_default_quotas,
 
-            -- Inadimplência Numerator (Contempladas)
             SUM(COALESCE(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0)) as total_default_contemplated,
 
-            -- Inadimplência Numerator (Não Contempladas)
             SUM(COALESCE(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)) as total_default_non_contemplated,
 
-            -- Excluded Quotas
             SUM(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_excluídas') AS INT64)) as total_excluded_quotas
 
         FROM \`consorcio_data.series_consolidadas\`
         GROUP BY data_base, codigo_segmento
-    ),
-    WithLag AS (
-        SELECT 
-            *,
-            LAG(total_active_quotas) OVER (PARTITION BY codigo_segmento ORDER BY data_base ASC) as prev_active_quotas,
-            LAG(total_volume) OVER (PARTITION BY codigo_segmento ORDER BY data_base ASC) as prev_volume,
-            LAG(avg_admin_fee) OVER (PARTITION BY codigo_segmento ORDER BY data_base ASC) as prev_admin_fee,
-            LAG(total_default_quotas) OVER (PARTITION BY codigo_segmento ORDER BY data_base ASC) as prev_default_quotas,
-            LAG(total_default_contemplated) OVER (PARTITION BY codigo_segmento ORDER BY data_base ASC) as prev_default_contemplated,
-            LAG(total_default_non_contemplated) OVER (PARTITION BY codigo_segmento ORDER BY data_base ASC) as prev_default_non_contemplated,
-            LAG(total_excluded_quotas) OVER (PARTITION BY codigo_segmento ORDER BY data_base ASC) as prev_excluded_quotas
-        FROM Consolidated
-    )
-    SELECT 
-        *,
-        SAFE_DIVIDE((total_volume), total_active_quotas) as calculated_ticket_medio,
-        SAFE_DIVIDE(total_default_quotas, total_active_quotas) * 100 as default_rate,
-        
-        -- VARIATIONS (%) - Current vs Previous
-        SAFE_DIVIDE((total_volume - prev_volume), prev_volume) * 100 as var_volume,
-        SAFE_DIVIDE((total_active_quotas - prev_active_quotas), prev_active_quotas) * 100 as var_active_quotas,
-        (avg_admin_fee - prev_admin_fee) as var_admin_fee,
-        (SAFE_DIVIDE(total_default_quotas, total_active_quotas) * 100) - (SAFE_DIVIDE(prev_default_quotas, prev_active_quotas) * 100) as var_default_rate,
-        SAFE_DIVIDE((total_excluded_quotas - prev_excluded_quotas), prev_excluded_quotas) * 100 as var_excluded_quotas
-
-    FROM WithLag
-    ORDER BY data_base DESC, codigo_segmento ASC
-    LIMIT 200
+        ORDER BY data_base DESC, codigo_segmento ASC
+        LIMIT 400
     `;
     try {
         const [rows] = await bigquery.query({ query, location: LOCATION });
-        const latestDate = (_a = rows[0]) === null || _a === void 0 ? void 0 : _a.data_base;
+        if (!rows || rows.length === 0) {
+            return { summary: {}, segments: [], history: [] };
+        }
+        // Identify Dates
+        const distinctDates = Array.from(new Set(rows.map(r => r.data_base))).sort().reverse();
+        const latestDate = distinctDates[0];
+        const prevDate = distinctDates[1]; // Can be undefined if only 1 month of data
         const currentData = rows.filter(r => r.data_base === latestDate);
-        // General Totals
+        const prevData = prevDate ? rows.filter(r => r.data_base === prevDate) : [];
+        // --- GLOBAL SUMMARY CALCULATIONS ---
         const totalVolume = currentData.reduce((acc, r) => acc + (Number(r.total_volume) || 0), 0);
         const totalQuotas = currentData.reduce((acc, r) => acc + (Number(r.total_active_quotas) || 0), 0);
-        // Default Breakdown
         const totalDefault = currentData.reduce((acc, r) => acc + (Number(r.total_default_quotas) || 0), 0);
         const totalDefaultContemplated = currentData.reduce((acc, r) => acc + (Number(r.total_default_contemplated) || 0), 0);
         const totalDefaultNonContemplated = currentData.reduce((acc, r) => acc + (Number(r.total_default_non_contemplated) || 0), 0);
         const totalFeesSum = currentData.reduce((acc, r) => acc + ((Number(r.avg_admin_fee) || 0) * (Number(r.total_volume) || 0)), 0);
         const avgFeeGeneral = totalVolume > 0 ? totalFeesSum / totalVolume : 0;
         const totalExcluded = currentData.reduce((acc, r) => acc + (Number(r.total_excluded_quotas) || 0), 0);
-        // Previous Totals for General Variations
-        const prevVolume = currentData.reduce((acc, r) => acc + (Number(r.prev_volume) || 0), 0);
-        const prevQuotas = currentData.reduce((acc, r) => acc + (Number(r.prev_active_quotas) || 0), 0);
-        const prevDefault = currentData.reduce((acc, r) => acc + (Number(r.prev_default_quotas) || 0), 0);
-        const prevExcluded = currentData.reduce((acc, r) => acc + (Number(r.prev_excluded_quotas) || 0), 0);
-        // Weighted Admin Fee Prev
-        const prevFeesSum = currentData.reduce((acc, r) => acc + ((Number(r.prev_admin_fee) || 0) * (Number(r.prev_volume) || 0)), 0);
+        // --- PREVIOUS PERIOD SUMMARY ---
+        const prevVolume = prevData.reduce((acc, r) => acc + (Number(r.total_volume) || 0), 0);
+        const prevQuotas = prevData.reduce((acc, r) => acc + (Number(r.total_active_quotas) || 0), 0);
+        const prevDefault = prevData.reduce((acc, r) => acc + (Number(r.total_default_quotas) || 0), 0);
+        const prevExcluded = prevData.reduce((acc, r) => acc + (Number(r.total_excluded_quotas) || 0), 0);
+        const prevFeesSum = prevData.reduce((acc, r) => acc + ((Number(r.avg_admin_fee) || 0) * (Number(r.total_volume) || 0)), 0);
         const prevAvgFee = prevVolume > 0 ? prevFeesSum / prevVolume : 0;
+        // --- SEGMENT CALCULATIONS ---
+        const segments = currentData.map(curr => {
+            const prev = prevData.find(p => p.codigo_segmento === curr.codigo_segmento);
+            // Curr Metrics
+            const cVol = Number(curr.total_volume) || 0;
+            const cQtd = Number(curr.total_active_quotas) || 0;
+            const cDef = Number(curr.total_default_quotas) || 0;
+            const cExc = Number(curr.total_excluded_quotas) || 0;
+            const cFee = Number(curr.avg_admin_fee) || 0;
+            const cTicket = cQtd > 0 ? cVol / cQtd : 0;
+            const cDefRate = cQtd > 0 ? (cDef / cQtd) * 100 : 0;
+            // Prev Metrics
+            const pVol = prev ? (Number(prev.total_volume) || 0) : 0;
+            const pQtd = prev ? (Number(prev.total_active_quotas) || 0) : 0;
+            const pDef = prev ? (Number(prev.total_default_quotas) || 0) : 0;
+            const pExc = prev ? (Number(prev.total_excluded_quotas) || 0) : 0;
+            const pTicket = pQtd > 0 ? pVol / pQtd : 0;
+            const pDefRate = pQtd > 0 ? (pDef / pQtd) * 100 : 0;
+            return {
+                id: curr.codigo_segmento,
+                name: curr.nome_segmento || `Segmento ${curr.codigo_segmento}`,
+                volume: cVol,
+                quotas: cQtd,
+                ticket: cTicket,
+                adminFee: cFee,
+                defaultRate: cDefRate,
+                excluded: cExc,
+                // Variations
+                varVolume: pVol > 0 ? ((cVol - pVol) / pVol) * 100 : 0,
+                varQuotas: pQtd > 0 ? ((cQtd - pQtd) / pQtd) * 100 : 0,
+                varTicket: pTicket > 0 ? ((cTicket - pTicket) / pTicket) * 100 : 0,
+                varAdminFee: cFee - (prev ? (Number(prev.avg_admin_fee) || 0) : 0),
+                varDefaultRate: cDefRate - pDefRate,
+                varExcluded: pExc > 0 ? ((cExc - pExc) / pExc) * 100 : 0
+            };
+        });
         return {
             summary: {
                 totalActiveQuotas: totalQuotas,
@@ -613,26 +623,10 @@ exports.getDashboardData = functions.https.onCall(async (data, context) => {
                 varDefaultRate: (totalQuotas > 0 ? (totalDefault / totalQuotas) * 100 : 0) - (prevQuotas > 0 ? (prevDefault / prevQuotas) * 100 : 0),
                 varExcluded: prevExcluded > 0 ? ((totalExcluded - prevExcluded) / prevExcluded) * 100 : 0,
                 varAdminFee: avgFeeGeneral - prevAvgFee,
-                varTicket: (prevQuotas > 0 && totalQuotas > 0) ? ((totalVolume / totalQuotas) - (prevVolume / prevQuotas)) / (prevVolume / prevQuotas) * 100 : 0
+                varTicket: (prevVolume > 0 && totalQuotas > 0) ? ((totalVolume / totalQuotas) - (prevVolume / prevQuotas)) / (prevVolume / prevQuotas) * 100 : 0
             },
-            segments: currentData.map(r => ({
-                id: r.codigo_segmento,
-                name: r.nome_segmento || `Segmento ${r.codigo_segmento}`,
-                volume: Number(r.total_volume),
-                quotas: Number(r.total_active_quotas),
-                ticket: Number(r.calculated_ticket_medio),
-                adminFee: Number(r.avg_admin_fee),
-                defaultRate: Number(r.default_rate),
-                excluded: Number(r.total_excluded_quotas),
-                // Segment Variations
-                varVolume: Number(r.var_volume || 0),
-                varQuotas: Number(r.var_active_quotas || 0),
-                varTicket: (Number(r.calculated_ticket_medio) - (Number(r.prev_volume) / Number(r.prev_active_quotas))) / (Number(r.prev_volume) / Number(r.prev_active_quotas)) * 100,
-                varAdminFee: Number(r.var_admin_fee || 0),
-                varDefaultRate: Number(r.var_default_rate || 0),
-                varExcluded: Number(r.var_excluded_quotas || 0)
-            })),
-            history: rows // Pass full history
+            segments: segments,
+            history: rows // Pass full history for charts
         };
     }
     catch (error) {
@@ -641,7 +635,7 @@ exports.getDashboardData = functions.https.onCall(async (data, context) => {
     }
 });
 // --- EXISTING FUNCTIONS PRESERVED ---
-exports.getTrendData = functions.https.onCall(async (data, context) => {
+exports.getTrendData = functions.https.onCall(async (request) => {
     const query = `
         SELECT
             data_base,
@@ -660,21 +654,17 @@ exports.getTrendData = functions.https.onCall(async (data, context) => {
                         IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) +
                         IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
                     ) * SAFE_CAST(REPLACE(REPLACE(JSON_VALUE(metricas_raw, '$.Valor_médio_do_bem'), '.', ''), ',', '.') AS FLOAT64)
-                ) as total_volume
+                ) as total_volume,
 
-            -- Inadimplência Numerator (Total)
             SUM(
                 COALESCE(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
                 COALESCE(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
             ) as total_default_quotas,
 
-            -- Inadimplência Numerator (Contempladas)
             SUM(COALESCE(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0)) as total_default_contemplated,
 
-            -- Inadimplência Numerator (Não Contempladas)
             SUM(COALESCE(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)) as total_default_non_contemplated,
 
-            -- Taxa Adm (Media)
             AVG(SAFE_CAST(REPLACE(REPLACE(JSON_VALUE(metricas_raw, '$.Taxa_de_administração'), '.', ''), ',', '.') AS FLOAT64)) as avg_admin_fee
 
         FROM \`consorcio_data.series_consolidadas\`
@@ -690,7 +680,7 @@ exports.getTrendData = functions.https.onCall(async (data, context) => {
         throw new functions.https.HttpsError('internal', error.message);
     }
 });
-exports.getAdministratorData = functions.https.onCall(async (data, context) => {
+exports.getAdministratorData = functions.https.onCall(async (request) => {
     const query = `
         WITH MaxDate AS (
             SELECT MAX(data_base) as max_date FROM \`consorcio_data.series_consolidadas\`
@@ -706,7 +696,6 @@ exports.getAdministratorData = functions.https.onCall(async (data, context) => {
             t.cnpj_raiz,
             COALESCE(ANY_VALUE(adm.nome), ANY_VALUE(JSON_VALUE(t.metricas_raw, '$.Nome_da_Administradora'))) as nome_reduzido,
             
-            -- Volume
             SUM(
                 (
                     SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) + 
@@ -715,22 +704,32 @@ exports.getAdministratorData = functions.https.onCall(async (data, context) => {
                 ) * SAFE_CAST(REPLACE(REPLACE(JSON_VALUE(t.metricas_raw, '$.Valor_médio_do_bem'), '.', ''), ',', '.') AS FLOAT64)
             ) as totalBalance,
 
-            -- Active Quotas
             SUM(
                 SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) + 
                 IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
                 IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
             ) as totalActive,
             
-            -- Defaults (Inadimplencia Total)
             SUM(
                 COALESCE(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
                 COALESCE(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
             ) as totalDefaults,
 
-            -- Defaults Breakdown
             SUM(COALESCE(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0)) as totalDefaultContemplated,
-            SUM(COALESCE(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)) as totalDefaultNonContemplated
+            SUM(COALESCE(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)) as totalDefaultNonContemplated,
+            
+            SUM(
+                (
+                    SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) + 
+                    IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
+                    IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
+                ) * SAFE_CAST(REPLACE(REPLACE(JSON_VALUE(t.metricas_raw, '$.Valor_médio_do_bem'), '.', ''), ',', '.') AS FLOAT64) * 
+                SAFE_CAST(REPLACE(REPLACE(JSON_VALUE(t.metricas_raw, '$.Taxa_de_administração'), '.', ''), ',', '.') AS FLOAT64)
+            ) as totalFeesWeighted,
+            
+                ) * SAFE_CAST(REPLACE(REPLACE(JSON_VALUE(t.metricas_raw, '$.Valor_médio_do_bem'), '.', ''), ',', '.') AS FLOAT64) * 
+                COALESCE(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Prazo_do_grupo_em_meses') AS FLOAT64), 0)
+            ) as totalTermWeighted
 
         FROM \`consorcio_data.series_consolidadas\` t
         CROSS JOIN MaxDate md
@@ -748,8 +747,8 @@ exports.getAdministratorData = functions.https.onCall(async (data, context) => {
         throw new functions.https.HttpsError('internal', error.message);
     }
 });
-exports.getAdministratorDetail = functions.https.onCall(async (data, context) => {
-    const { cnpj } = data;
+exports.getAdministratorDetail = functions.https.onCall(async (request) => {
+    const { cnpj } = request.data;
     if (!cnpj)
         throw new functions.https.HttpsError('invalid-argument', 'CNPJ required');
     const query = `
@@ -787,7 +786,25 @@ exports.getAdministratorDetail = functions.https.onCall(async (data, context) =>
             SUM(COALESCE(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0)) as total_default_contemplated,
             SUM(COALESCE(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)) as total_default_non_contemplated,
             
-            SUM(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_excluídas') AS INT64)) as total_dropouts
+            SUM(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_excluídas') AS INT64)) as total_dropouts,
+
+            SUM(
+               (
+                    SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) + 
+                    IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
+                    IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
+                ) * SAFE_CAST(REPLACE(REPLACE(JSON_VALUE(t.metricas_raw, '$.Valor_médio_do_bem'), '.', ''), ',', '.') AS FLOAT64) * 
+                SAFE_CAST(REPLACE(REPLACE(JSON_VALUE(t.metricas_raw, '$.Taxa_de_administração'), '.', ''), ',', '.') AS FLOAT64)
+            ) as total_fees_weighted,
+
+             SUM(
+               (
+                    SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) + 
+                    IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
+                    IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
+                ) * SAFE_CAST(REPLACE(REPLACE(JSON_VALUE(t.metricas_raw, '$.Valor_médio_do_bem'), '.', ''), ',', '.') AS FLOAT64) * 
+                COALESCE(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Prazo_do_grupo_em_meses') AS FLOAT64), 0)
+            ) as total_term_weighted
 
         FROM \`consorcio_data.series_consolidadas\` t
         LEFT JOIN LatestAdmins adm ON adm.cnpj_raiz = t.cnpj_raiz AND adm.rn = 1
@@ -808,8 +825,8 @@ exports.getAdministratorDetail = functions.https.onCall(async (data, context) =>
         throw new functions.https.HttpsError('internal', error.message);
     }
 });
-exports.getOperationalData = functions.https.onCall(async (data, context) => {
-    const { mode, cnpj } = data;
+exports.getOperationalData = functions.https.onCall(async (request) => {
+    const { mode, cnpj } = request.data;
     if (mode === 'detail' && !cnpj) {
         throw new functions.https.HttpsError('invalid-argument', 'CNPJ required for detail mode');
     }
@@ -864,7 +881,7 @@ exports.getOperationalData = functions.https.onCall(async (data, context) => {
         throw new functions.https.HttpsError('internal', error.message);
     }
 });
-exports.getRegionalData = functions.https.onCall(async (data, context) => {
+exports.getRegionalData = functions.https.onCall(async (request) => {
     const query = `
         WITH MaxDate AS (
             SELECT MAX(data_base) as max_date FROM \`consorcio_data.dados_trimestrais_uf\`
@@ -892,8 +909,8 @@ exports.getRegionalData = functions.https.onCall(async (data, context) => {
         throw new functions.https.HttpsError('internal', error.message);
     }
 });
-exports.setupAdmin = functions.https.onCall(async (data, context) => {
-    const { email, password, setupKey } = data;
+exports.setupAdmin = functions.https.onCall(async (request) => {
+    const { email, password, setupKey } = request.data;
     if (setupKey !== 'INTEL_SETUP_2026') {
         throw new functions.https.HttpsError('permission-denied', 'Invalid Setup Key');
     }
@@ -923,10 +940,10 @@ exports.setupAdmin = functions.https.onCall(async (data, context) => {
         throw new functions.https.HttpsError('internal', error.message);
     }
 });
-exports.checkAdminStatus = functions.https.onCall(async (data, context) => {
-    if (!context.auth)
+exports.checkAdminStatus = functions.https.onCall(async (request) => {
+    if (!request.auth)
         return { isAdmin: false };
-    const token = context.auth.token;
+    const token = request.auth.token;
     return { isAdmin: !!token.admin };
 });
 //# sourceMappingURL=index.js.map
