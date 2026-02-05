@@ -662,6 +662,21 @@ exports.getTrendData = functions.https.onCall(async (data, context) => {
                     ) * SAFE_CAST(REPLACE(REPLACE(JSON_VALUE(metricas_raw, '$.Valor_médio_do_bem'), '.', ''), ',', '.') AS FLOAT64)
                 ) as total_volume
 
+            -- Inadimplência Numerator (Total)
+            SUM(
+                COALESCE(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
+                COALESCE(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
+            ) as total_default_quotas,
+
+            -- Inadimplência Numerator (Contempladas)
+            SUM(COALESCE(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0)) as total_default_contemplated,
+
+            -- Inadimplência Numerator (Não Contempladas)
+            SUM(COALESCE(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)) as total_default_non_contemplated,
+
+            -- Taxa Adm (Media)
+            AVG(SAFE_CAST(REPLACE(REPLACE(JSON_VALUE(metricas_raw, '$.Taxa_de_administração'), '.', ''), ',', '.') AS FLOAT64)) as avg_admin_fee
+
         FROM \`consorcio_data.series_consolidadas\`
         GROUP BY data_base, codigo_segmento
         ORDER BY data_base ASC
@@ -707,11 +722,15 @@ exports.getAdministratorData = functions.https.onCall(async (data, context) => {
                 IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
             ) as totalActive,
             
-            -- Defaults (Inadimplencia)
+            -- Defaults (Inadimplencia Total)
             SUM(
-                IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
-                IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
-            ) as totalDefaults
+                COALESCE(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
+                COALESCE(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
+            ) as totalDefaults,
+
+            -- Defaults Breakdown
+            SUM(COALESCE(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0)) as totalDefaultContemplated,
+            SUM(COALESCE(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)) as totalDefaultNonContemplated
 
         FROM \`consorcio_data.series_consolidadas\` t
         CROSS JOIN MaxDate md
@@ -761,9 +780,12 @@ exports.getAdministratorDetail = functions.https.onCall(async (data, context) =>
             ) as total_active,
 
             SUM(
-                IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
-                IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
+                COALESCE(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
+                COALESCE(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
             ) as total_defaults,
+
+            SUM(COALESCE(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0)) as total_default_contemplated,
+            SUM(COALESCE(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)) as total_default_non_contemplated,
             
             SUM(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_excluídas') AS INT64)) as total_dropouts
 

@@ -9,7 +9,18 @@ import { getFunctions, httpsCallable } from 'firebase/functions';
 
 
 
-type MetricType = 'quotas' | 'volume' | 'ticket';
+type MetricType = 'quotas' | 'volume' | 'ticket' | 'defaultRate' | 'defaultContemplated' | 'defaultNonContemplated' | 'adminFee';
+
+interface TrendRow {
+  data_base: string;
+  codigo_segmento: number;
+  total_quotas: number | string;
+  total_volume: number | string;
+  total_default_quotas?: number | string;
+  total_default_contemplated?: number | string;
+  total_default_non_contemplated?: number | string;
+  avg_admin_fee?: number | string;
+}
 
 const SEGMENT_COLORS: Record<string, string> = {
   '1': '#2563eb', // Imoveis
@@ -31,12 +42,7 @@ const getSegName = (code: string | number): string => {
   return `${c} - Outros`;
 };
 
-interface TrendRow {
-  data_base: string;
-  codigo_segmento: number;
-  total_quotas: number | string;
-  total_volume: number | string;
-}
+
 
 export const TrendAnalysis: React.FC = () => {
   const [rawData, setRawData] = useState<TrendRow[]>([]);
@@ -83,10 +89,18 @@ export const TrendAnalysis: React.FC = () => {
       let val = 0;
       const vol = Number(row.total_volume) || 0;
       const qtd = Number(row.total_quotas) || 0;
+      const defTotal = Number(row.total_default_quotas) || 0;
+      const defCont = Number(row.total_default_contemplated) || 0;
+      const defNon = Number(row.total_default_non_contemplated) || 0;
+      const fee = Number(row.avg_admin_fee) || 0;
 
       if (metricType === 'volume') val = vol;
       else if (metricType === 'quotas') val = qtd;
       else if (metricType === 'ticket') val = qtd > 0 ? vol / qtd : 0;
+      else if (metricType === 'defaultRate') val = qtd > 0 ? (defTotal / qtd) * 100 : 0;
+      else if (metricType === 'defaultContemplated') val = qtd > 0 ? (defCont / qtd) * 100 : 0;
+      else if (metricType === 'defaultNonContemplated') val = qtd > 0 ? (defNon / qtd) * 100 : 0;
+      else if (metricType === 'adminFee') val = fee;
 
       entry[segName] = val;
     });
@@ -145,28 +159,53 @@ export const TrendAnalysis: React.FC = () => {
           <p className="text-slate-500">Evolução histórica por segmento e indicador.</p>
         </div>
         <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto items-center">
-          <div className="flex bg-white rounded-lg p-1 border border-slate-200 shadow-sm">
-            <button
-              onClick={() => setMetricType('volume')}
-              className={`p-2 rounded-md transition-all ${metricType === 'volume' ? 'bg-slate-100 text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
-              title="Volume Financeiro"
-            >
-              <DollarSign size={18} />
-            </button>
-            <button
-              onClick={() => setMetricType('quotas')}
-              className={`p-2 rounded-md transition-all ${metricType === 'quotas' ? 'bg-slate-100 text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
-              title="Cotas Ativas"
-            >
-              <Users size={18} />
-            </button>
-            <button
-              onClick={() => setMetricType('ticket')}
-              className={`p-2 rounded-md transition-all ${metricType === 'ticket' ? 'bg-slate-100 text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
-              title="Ticket Médio"
-            >
-              <BarChart2 size={18} />
-            </button>
+          <div className="flex flex-col items-center">
+            <div className="flex bg-white rounded-lg p-1 border border-slate-200 shadow-sm">
+              <button
+                onClick={() => setMetricType('volume')}
+                className={`p-2 rounded-md transition-all ${metricType === 'volume' ? 'bg-slate-100 text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
+                title="Volume Financeiro"
+              >
+                <DollarSign size={18} />
+              </button>
+              <button
+                onClick={() => setMetricType('quotas')}
+                className={`p-2 rounded-md transition-all ${metricType === 'quotas' ? 'bg-slate-100 text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
+                title="Cotas Ativas"
+              >
+                <Users size={18} />
+              </button>
+              <button
+                onClick={() => setMetricType('ticket')}
+                className={`p-2 rounded-md transition-all ${metricType === 'ticket' ? 'bg-slate-100 text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
+                title="Ticket Médio"
+              >
+                <BarChart2 size={18} />
+              </button>
+              <button
+                onClick={() => setMetricType('defaultRate')}
+                className={`p-2 rounded-md transition-all ${metricType.includes('default') ? 'bg-slate-100 text-red-600' : 'text-slate-400 hover:text-slate-600'}`}
+                title="Inadimplência"
+              >
+                <TrendingUp size={18} />
+              </button>
+              <button
+                onClick={() => setMetricType('adminFee')}
+                className={`p-2 rounded-md transition-all ${metricType === 'adminFee' ? 'bg-slate-100 text-emerald-600' : 'text-slate-400 hover:text-slate-600'}`}
+                title="Taxa de Administração"
+              >
+                <DollarSign size={18} />
+              </button>
+            </div>
+
+            {/* Sub-filters for Default Rates */}
+            {metricType.includes('default') && (
+              <div className="flex flex-wrap gap-2 mt-2 animate-fade-in bg-slate-50 p-1 rounded-lg border border-slate-200">
+                <button onClick={() => setMetricType('defaultRate')} className={`text-[10px] px-2 py-0.5 rounded-full ${metricType === 'defaultRate' ? 'bg-slate-800 text-white' : 'text-slate-500 hover:text-slate-800'}`}>Total</button>
+                <button onClick={() => setMetricType('defaultContemplated')} className={`text-[10px] px-2 py-0.5 rounded-full ${metricType === 'defaultContemplated' ? 'bg-slate-800 text-white' : 'text-slate-500 hover:text-slate-800'}`}>Contempladas</button>
+                <button onClick={() => setMetricType('defaultNonContemplated')} className={`text-[10px] px-2 py-0.5 rounded-full ${metricType === 'defaultNonContemplated' ? 'bg-slate-800 text-white' : 'text-slate-500 hover:text-slate-800'}`}>Não Contemp.</button>
+              </div>
+            )}
           </div>
 
           <PeriodSelector value={period} onChange={setPeriod} options={['1q', '1y', 'all']} />

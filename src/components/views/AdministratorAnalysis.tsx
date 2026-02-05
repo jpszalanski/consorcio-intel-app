@@ -34,6 +34,8 @@ interface AdminDetailRow {
   total_fees_weighted: number | string;
   total_term_weighted: number | string;
   total_defaults: number | string;
+  total_default_contemplated: number | string;
+  total_default_non_contemplated: number | string;
   total_dropouts: number | string;
 }
 
@@ -158,9 +160,10 @@ export const AdministratorAnalysis: React.FC = () => {
     const latestDate = history.length > 0 ? history[history.length - 1].period : '';
     const currentRows = rows.filter(r => r.data_base === latestDate);
 
-    let totalActive = 0, totalBalance = 0, sumFees = 0, sumTerm = 0, sumDefaults = 0, sumDropouts = 0;
+    let totalActive = 0, totalBalance = 0, sumFees = 0, sumTerm = 0, sumDefaults = 0;
+    let sumDefContemplated = 0, sumDefNonContemplated = 0, sumDropouts = 0;
 
-    const segMap = new Map<string, { balance: number; active: number; fees: number; defaults: number; dropouts: number; }>();
+    const segMap = new Map<string, { balance: number; active: number; fees: number; defaults: number; defContemplated: number; defNonContemplated: number; dropouts: number; }>();
 
     currentRows.forEach(row => {
       const act = Number(row.total_active) || 0;
@@ -168,14 +171,18 @@ export const AdministratorAnalysis: React.FC = () => {
       const feesW = Number(row.total_fees_weighted) || 0;
       const termW = Number(row.total_term_weighted) || 0;
       const defs = Number(row.total_defaults) || 0;
+      const defCont = Number(row.total_default_contemplated) || 0;
+      const defNon = Number(row.total_default_non_contemplated) || 0;
       const drops = Number(row.total_dropouts) || 0;
 
-      totalActive += act; totalBalance += vol; sumFees += feesW; sumTerm += termW; sumDefaults += defs; sumDropouts += drops;
+      totalActive += act; totalBalance += vol; sumFees += feesW; sumTerm += termW; sumDefaults += defs;
+      sumDefContemplated += defCont; sumDefNonContemplated += defNon; sumDropouts += drops;
 
       const segName = getSegName(row.codigo_segmento);
-      if (!segMap.has(segName)) segMap.set(segName, { balance: 0, active: 0, fees: 0, defaults: 0, dropouts: 0 });
+      if (!segMap.has(segName)) segMap.set(segName, { balance: 0, active: 0, fees: 0, defaults: 0, defContemplated: 0, defNonContemplated: 0, dropouts: 0 });
       const s = segMap.get(segName)!;
-      s.balance += vol; s.active += act; s.fees += feesW; s.defaults += defs; s.dropouts += drops;
+      s.balance += vol; s.active += act; s.fees += feesW; s.defaults += defs;
+      s.defContemplated += defCont; s.defNonContemplated += defNon; s.dropouts += drops;
     });
 
     const avgAdminFee = totalActive > 0 ? sumFees / totalActive : 0;
@@ -189,6 +196,8 @@ export const AdministratorAnalysis: React.FC = () => {
       active: stats.active,
       avgFee: stats.active > 0 ? stats.fees / stats.active : 0,
       defaultRate: stats.active > 0 ? (stats.defaults / stats.active) * 100 : 0,
+      defContemplated: stats.active > 0 ? (stats.defContemplated / stats.active) * 100 : 0,
+      defNonContemplated: stats.active > 0 ? (stats.defNonContemplated / stats.active) * 100 : 0,
       dropoutRate: stats.active > 0 ? (stats.dropouts / stats.active) * 100 : 0
     })).sort((a, b) => b.balance - a.balance);
 
@@ -533,7 +542,9 @@ export const AdministratorAnalysis: React.FC = () => {
                   <th className="px-6 py-3 text-right">Volume (R$)</th>
                   <th className="px-6 py-3 text-right">Cotas</th>
                   <th className="px-6 py-3 text-center">Taxa Adm</th>
-                  <th className="px-6 py-3 text-center">Inadimplência</th>
+                  <th className="px-6 py-3 text-center bg-red-50/50">Inad. Total</th>
+                  <th className="px-6 py-3 text-center text-[10px] text-slate-400">Contem.</th>
+                  <th className="px-6 py-3 text-center text-[10px] text-slate-400">Não Cont.</th>
                   <th className="px-6 py-3 text-center">Evasão</th>
                 </tr>
               </thead>
@@ -546,16 +557,18 @@ export const AdministratorAnalysis: React.FC = () => {
                     </td>
                     <td className="px-6 py-3 text-right">{s.active.toLocaleString('pt-BR')}</td>
                     <td className="px-6 py-3 text-center">{s.avgFee > 0 ? `${s.avgFee.toFixed(2)}%` : '-'}</td>
-                    <td className="px-6 py-3 text-center">
+                    <td className="px-6 py-3 text-center bg-red-50/30">
                       <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${s.defaultRate > 5 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
                         {s.defaultRate.toFixed(2)}%
                       </span>
                     </td>
+                    <td className="px-6 py-3 text-center text-xs text-slate-600">{s.defContemplated.toFixed(2)}%</td>
+                    <td className="px-6 py-3 text-center text-xs text-slate-600">{s.defNonContemplated.toFixed(2)}%</td>
                     <td className="px-6 py-3 text-center text-slate-500">{s.dropoutRate.toFixed(2)}%</td>
                   </tr>
                 ))}
                 {metricsA.segmentBreakdown.length === 0 && (
-                  <tr><td colSpan={6} className="text-center py-4 text-slate-400">Sem dados segmentados.</td></tr>
+                  <tr><td colSpan={8} className="text-center py-4 text-slate-400">Sem dados segmentados.</td></tr>
                 )}
               </tbody>
             </table>
