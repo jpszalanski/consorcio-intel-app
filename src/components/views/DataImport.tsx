@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { useAuth } from '../../hooks/useAuth';
 import { UploadCloud, CheckCircle2, AlertTriangle, Loader2, Trash2 } from 'lucide-react';
 import { BigQueryImport } from './BigQueryImport';
+import { httpsCallable } from 'firebase/functions';
+import { functions } from '../../services/firebase';
 
 export const DataImport: React.FC = () => {
   const { isAdmin, loading } = useAuth();
@@ -49,10 +51,6 @@ export const DataImport: React.FC = () => {
               if (!confirm2) return;
 
               try {
-                // We need access to functions here. Assuming imported from firebase/functions
-                const { httpsCallable } = await import('firebase/functions');
-                const { functions } = await import('../../services/firebase');
-
                 const reset = httpsCallable(functions, 'resetSystemData');
 
                 await reset();
