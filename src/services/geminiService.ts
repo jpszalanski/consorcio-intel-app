@@ -6,34 +6,129 @@ import { getFirestore, doc, getDoc } from "firebase/firestore";
 // Default Prompts (Fallbacks & Seeding)
 export const initialPrompts = {
   market_insight: `
+Você é um analista sênior do mercado de consórcios brasileiro.
 
-      Retorne APENAS um JSON válido seguindo estritamente este formato para renderização:
-      {
-        "summary": "Manchete executiva de uma frase sobre a situação geral.",
-        "points": [
-          {
-            "title": "Título curto do ponto (ex: Análise de Churn)",
-            "content": "Explicação detalhada focada nos itens obrigatórios acima...",
-            "type": "positive" | "negative" | "neutral" | "info"
-          }
-        ],
-        "recommendation": "Uma ação estratégica recomendada baseada na análise."
-      }
+Analise os dados fornecidos e retorne APENAS um JSON válido seguindo estritamente este formato:
+{
+  "summary": "Manchete executiva de uma frase sobre a situação geral do mercado.",
+  "points": [
+    {
+      "title": "Título curto do ponto (ex: Análise de Churn)",
+      "content": "Explicação detalhada com insights acionáveis...",
+      "type": "positive" | "negative" | "neutral" | "info"
+    }
+  ],
+  "recommendation": "Uma ação estratégica recomendada baseada na análise."
+}
+
+Dados: {{data}}
+Contexto: {{context}}
   `,
   demand_prediction: `
-      Analise a série histórica do segmento oficial BACEN: {{segment}}.
-      Projete a demanda para os próximos 12 meses.
-      
-      Considere:
-      - Sazonalidade típica deste segmento.
-      - Impacto da política monetária atual no crédito vs. consórcio.
-      - Dados Históricos: {{historicalData}}
-      
-      Retorne estritamente um JSON no formato:
-      {
-        "prediction": "Frase curta da tendência (ex: Crescimento Moderado em Veículos Pesados)",
-        "rationale": "Explicação técnica baseada em fundamentos econômicos."
-      }
+Analise a série histórica do segmento oficial BACEN: {{segment}}.
+Projete a demanda para os próximos 12 meses.
+
+Considere:
+- Sazonalidade típica deste segmento.
+- Impacto da política monetária atual no crédito vs. consórcio.
+- Dados Históricos: {{historicalData}}
+
+Retorne estritamente um JSON no formato:
+{
+  "prediction": "Frase curta da tendência (ex: Crescimento Moderado em Veículos Pesados)",
+  "rationale": "Explicação técnica baseada em fundamentos econômicos."
+}
+  `,
+  administrator_analysis: `
+Você é um especialista em análise competitiva de administradoras de consórcio.
+
+Analise o desempenho da administradora com base nos dados fornecidos.
+
+Dados da Administradora: {{administratorData}}
+Dados do Mercado: {{marketData}}
+
+Retorne APENAS um JSON válido:
+{
+  "summary": "Avaliação geral do posicionamento da administradora no mercado.",
+  "points": [
+    {
+      "title": "Ponto de análise",
+      "content": "Detalhamento com métricas e comparações",
+      "type": "positive" | "negative" | "neutral" | "info"
+    }
+  ],
+  "recommendation": "Recomendação estratégica específica."
+}
+  `,
+  competitive_analysis: `
+Você é um analista de inteligência competitiva especializado em consórcios.
+
+Compare as administradoras fornecidas e identifique:
+1. Líderes de mercado por segmento
+2. Estratégias de precificação (taxas de administração)
+3. Qualidade da carteira (inadimplência)
+4. Oportunidades de diferenciação
+
+Dados: {{competitorsData}}
+
+Retorne APENAS JSON:
+{
+  "summary": "Síntese do panorama competitivo.",
+  "points": [
+    {
+      "title": "Insight competitivo",
+      "content": "Análise detalhada",
+      "type": "positive" | "negative" | "neutral" | "info"
+    }
+  ],
+  "recommendation": "Ação estratégica recomendada."
+}
+  `,
+  regional_analysis: `
+Você é um especialista em análise geográfica de mercados financeiros.
+
+Analise a distribuição regional dos consorciados e identifique:
+1. Estados com maior concentração
+2. Regiões com potencial inexplorado
+3. Correlação com indicadores econômicos regionais
+
+Dados Regionais: {{regionalData}}
+
+Retorne APENAS JSON:
+{
+  "summary": "Visão geral da distribuição geográfica.",
+  "points": [
+    {
+      "title": "Insight regional",
+      "content": "Análise com dados específicos",
+      "type": "positive" | "negative" | "neutral" | "info"
+    }
+  ],
+  "recommendation": "Estratégia de expansão ou consolidação regional."
+}
+  `,
+  trend_analysis: `
+Você é um analista quantitativo especializado em séries temporais do mercado de consórcios.
+
+Analise as tendências históricas e identifique:
+1. Padrões sazonais
+2. Pontos de inflexão
+3. Correlações com indicadores macroeconômicos (Selic, PIB, etc.)
+
+Dados Históricos: {{trendData}}
+
+Retorne APENAS JSON:
+{
+  "summary": "Síntese das tendências identificadas.",
+  "points": [
+    {
+      "title": "Tendência identificada",
+      "content": "Análise detalhada com dados",
+      "type": "positive" | "negative" | "neutral" | "info"
+    }
+  ],
+  "recommendation": "Previsão e ação recomendada."
+}
   `
 };
 

@@ -40,8 +40,6 @@ export const PromptSettings: React.FC = () => {
         );
     }
 
-    if (loading) return <div className="p-8 text-center text-slate-400">Carregando configurações...</div>;
-    // ... render
 
     const fetchPrompts = async () => {
         setLoading(true);
