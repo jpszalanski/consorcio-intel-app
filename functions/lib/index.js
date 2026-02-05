@@ -1,12 +1,14 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.debugSetAdmin = exports.checkAdminStatus = exports.setupAdmin = exports.getDashboardData = exports.getRegionalData = exports.getOperationalData = exports.getAdministratorDetail = exports.getAdministratorData = exports.getTrendData = exports.resetSystemData = exports.reprocessFile = exports.deleteFile = exports.processFileUpload = void 0;
+exports.checkAdminStatus = exports.setupAdmin = exports.getRegionalData = exports.getOperationalData = exports.getAdministratorDetail = exports.getAdministratorData = exports.getTrendData = exports.getDashboardData = exports.resetSystemData = exports.reprocessFile = exports.deleteFile = exports.processFileUpload = void 0;
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 const os = require("os");
 const path = require("path");
 const fs = require("fs");
 const bigquery_1 = require("@google-cloud/bigquery");
+// @ts-ignore
+const node_1 = require("read-excel-file/node");
 const bigquery = new bigquery_1.BigQuery();
 const DATASET_ID = 'consorcio_data';
 const LOCATION = 'US'; // Configure as needed
@@ -72,20 +74,18 @@ const ensureInfrastructure = async (tableId) => {
     }
 };
 admin.initializeApp();
-// --- SHARED LOGIC PORTED FROM dataStore.ts ---
+// --- SHARED LOGIC ---
 const normalizeToCompetence = (dateStr) => {
     if (!dateStr)
         return 'UNKNOWN';
     // Remove quotes
     const clean = dateStr.replace(/["']/g, '').trim();
     // 1. Try YYYY-MM or YYYYMM format
-    // Matches 2025-01, 202501
     const yyyymm = clean.match(/^(\d{4})[-/]?(\d{2})/);
     if (yyyymm) {
         return `${yyyymm[1]}-${yyyymm[2]}`;
     }
     // 2. Try DD/MM/YYYY or MM/YYYY
-    // Matches 31/01/2025 or 01/2025
     const ddmmyyyy = clean.match(/(\d{2})?[/]?(\d{2})\/(\d{4})/);
     if (ddmmyyyy) {
         const year = ddmmyyyy[3];
@@ -126,16 +126,13 @@ const findValue = (row, candidates) => {
 const standardizeRowKeys = (row) => {
     const newRow = {};
     Object.keys(row).forEach(key => {
-        // Replace spaces with underscores, remove special chars if desired, but mainly spaces is the issue
-        // Example: "Valor médio do bem" -> "Valor_médio_do_bem"
+        // Replace spaces with underscores
         const cleanKey = key.trim().replace(/\s+/g, '_');
-        // Keep value as is
         newRow[cleanKey] = row[key];
     });
     return newRow;
 };
 // --- MAPPERS ---
-// (Simplified for Backend: Returns flat object for BigQuery)
 const mapConsolidatedSeries = (row, fileName) => {
     const cnpj = String(findValue(row, ['CNPJ_da_Administradora']) || '').replace(/\D/g, '');
     if (!cnpj)
@@ -148,7 +145,6 @@ const mapConsolidatedSeries = (row, fileName) => {
             cnpj_raiz: cnpj,
             codigo_segmento: segCode,
             data_base: database,
-            // Store Standardized JSON
             metricas_raw: JSON.stringify(standardizeRowKeys(row)),
             file_name: fileName
         }
@@ -189,8 +185,10 @@ const mapQuarterlyData = (row, fileName) => {
 };
 const mapAdministrators = (row, fileName) => {
     // Assuming file has CNPJ and Name/Nom_Admi
-    const cnpj = String(findValue(row, ['CNPJ', 'Cnpj', 'CNPJ_da_Administradora']) || '').replace(/\D/g, '');
-    const nome = String(findValue(row, ['Nome', 'Nome_da_Administradora', 'Nom_Admi', 'NOME_DA_ADMINISTRADORA']) || '');
+    // CLEAN CNPJ: REMOVE DOTS/SLASHES/DASHES explicitly
+    const rawCnpj = String(findValue(row, ['CNPJ', 'Cnpj', 'CNPJ_da_Administradora']) || '');
+    const cnpj = rawCnpj.replace(/\D/g, '');
+    const nome = String(findValue(row, ['Nome', 'Nome_da_Administradora', 'Nom_Admi', 'NOME_DA_ADMINISTRADORA', 'Nome da Instituição', 'Nome_do_consorcio']) || '');
     if (!cnpj)
         return null;
     const database = String(findValue(row, ['Data_base']) || '');
@@ -206,11 +204,7 @@ const mapAdministrators = (row, fileName) => {
     };
 };
 const mapSegmentos = (row, fileName) => {
-    // Assuming file has Code and Name
     const code = parseInt(String(findValue(row, ['Código_do_segmento', 'Codigo']) || '0').replace(/\D/g, ''));
-    // Usually 'Nome_do_segmento' or the description next to code
-    // In "Segmentos Consolidados", the segment name might be "Nome_do_segmento" or derived.
-    // Based on previous knowledge (or assumption to be safe/generic):
     const nome = String(findValue(row, ['Nome_do_segmento', 'Descricao_do_segmento', 'Segmento']) || '');
     if (!code || !nome)
         return null;
@@ -237,16 +231,13 @@ exports.processFileUpload = functions.storage.object().onFinalize(async (object)
     const tempFilePath = path.join(os.tmpdir(), fileName);
     console.log(`Processing file: ${fileName}`);
     await bucket.file(filePath).download({ destination: tempFilePath });
-    const content = fs.readFileSync(tempFilePath, 'latin1'); // Using latin1/binary to match 'windows-1252' mostly
-    const lines = content.split('\n');
-    if (lines.length < 2)
-        return console.log("Arquivo vazio");
-    const firstLine = lines[0];
-    const separator = firstLine.includes(';') ? ';' : ',';
-    const headers = firstLine.split(separator).map(h => h.trim().replace(/^"|"$/g, ''));
-    // Detect Type
+    // DETECT FILE EXTENSION
+    const isExcel = filePath.toLowerCase().endsWith('.xlsx');
+    let rowsToInsert = [];
+    let detectedDate = '';
     let importType = null;
     const nameNorm = normalizeKey(fileName);
+    // Classification Logic
     if (nameNorm.includes('imoveis'))
         importType = 'real_estate';
     else if (nameNorm.includes('moveis'))
@@ -255,11 +246,11 @@ exports.processFileUpload = functions.storage.object().onFinalize(async (object)
         importType = 'segments';
     else if (nameNorm.includes('dadosporuf') || nameNorm.includes('consorciosuf') || (nameNorm.includes('uf') && !nameNorm.includes('imoveis') && !nameNorm.includes('moveis')))
         importType = 'regional_uf';
-    else if (nameNorm.includes('administradoras') || nameNorm.includes('doc4010'))
+    else if (nameNorm.includes('administradoras') || nameNorm.includes('doc4010') || nameNorm.includes('admconsorcio'))
         importType = 'administrators';
     // --- STATUS REPORTING ---
     const db = admin.firestore();
-    const controlRef = db.collection('file_imports_control').doc(fileName.replace(/\.[^/.]+$/, "")); // ID = filename without ext
+    const controlRef = db.collection('file_imports_control').doc(fileName.replace(/\.[^/.]+$/, ""));
     // 1. Start Processing Report
     await controlRef.set({
         fileName,
@@ -271,58 +262,86 @@ exports.processFileUpload = functions.storage.object().onFinalize(async (object)
     }, { merge: true });
     if (!importType) {
         await controlRef.update({ status: 'ERROR', errorDetails: 'Layout não detectado' });
+        fs.unlinkSync(tempFilePath);
         return console.error("Falha ao detectar layout.");
     }
-    console.log(`Detected Type: ${importType}`);
-    const rowsToInsert = [];
-    let detectedDate = '';
-    lines.slice(1).forEach(line => {
-        if (!line.trim())
-            return;
-        const values = line.split(separator);
-        const row = headers.reduce((obj, header, i) => {
-            var _a;
-            let val = (_a = values[i]) === null || _a === void 0 ? void 0 : _a.trim().replace(/^"|"$/g, '');
-            obj[header] = val;
-            return obj;
-        }, {});
-        // Extract Date from first valid row (Using findValue to be robust)
-        if (!detectedDate) {
-            detectedDate = String(findValue(row, ['Data_base']) || '');
-        }
-        let mapped = null;
-        if (importType === 'segments') {
-            mapped = mapConsolidatedSeries(row, fileName);
-            // Also try to map Segments table (Distinct list)
-            const segMapped = mapSegmentos(row, fileName);
-            if (segMapped)
-                rowsToInsert.push(segMapped);
-        }
-        if (importType === 'real_estate')
-            mapped = mapDetailedGroup(row, 'imoveis', fileName);
-        if (importType === 'moveis')
-            mapped = mapDetailedGroup(row, 'moveis', fileName); // Fix: 'moveis' string check
-        if (importType === 'movables')
-            mapped = mapDetailedGroup(row, 'moveis', fileName); // Handle both keys if needed
-        if (importType === 'regional_uf')
-            mapped = mapQuarterlyData(row, fileName);
-        if (importType === 'administrators')
-            mapped = mapAdministrators(row, fileName);
-        if (mapped)
-            rowsToInsert.push(mapped);
-    });
-    console.log(`Parsed ${rowsToInsert.length} rows.`);
+    console.log(`Detected Type: ${importType}, isExcel: ${isExcel}`);
     try {
-        // BIGQUERY INSERTION
-        // BIGQUERY INSERTION
+        if (isExcel) {
+            // XLSX PROCESSING
+            const rows = await (0, node_1.default)(tempFilePath);
+            // rows is array of arrays.
+            // Assume Row 0 is Header
+            if (rows.length < 2)
+                throw new Error("Arquivo Excel vazio ou sem cabeçalho");
+            const headers = rows[0].map(h => String(h).trim());
+            rows.slice(1).forEach((rowVals) => {
+                const rowObj = headers.reduce((obj, header, i) => {
+                    obj[header] = rowVals[i] !== null ? rowVals[i] : '';
+                    return obj;
+                }, {});
+                // Extract Date
+                if (!detectedDate)
+                    detectedDate = String(findValue(rowObj, ['Data_base']) || '');
+                let mapped = null;
+                if (importType === 'administrators')
+                    mapped = mapAdministrators(rowObj, fileName);
+                // Support other excel types if needed in future
+                if (mapped)
+                    rowsToInsert.push(mapped);
+            });
+        }
+        else {
+            // CSV PROCESSING
+            const content = fs.readFileSync(tempFilePath, 'latin1');
+            const lines = content.split('\n');
+            if (lines.length < 2) {
+                fs.unlinkSync(tempFilePath);
+                return console.log("Arquivo vazio");
+            }
+            const firstLine = lines[0];
+            const separator = firstLine.includes(';') ? ';' : ',';
+            const headers = firstLine.split(separator).map(h => h.trim().replace(/^"|"$/g, ''));
+            lines.slice(1).forEach(line => {
+                if (!line.trim())
+                    return;
+                const values = line.split(separator);
+                const row = headers.reduce((obj, header, i) => {
+                    var _a;
+                    let val = (_a = values[i]) === null || _a === void 0 ? void 0 : _a.trim().replace(/^"|"$/g, '');
+                    obj[header] = val;
+                    return obj;
+                }, {});
+                if (!detectedDate)
+                    detectedDate = String(findValue(row, ['Data_base']) || '');
+                let mapped = null;
+                if (importType === 'segments') {
+                    mapped = mapConsolidatedSeries(row, fileName);
+                    const segMapped = mapSegmentos(row, fileName);
+                    if (segMapped)
+                        rowsToInsert.push(segMapped);
+                }
+                if (importType === 'real_estate')
+                    mapped = mapDetailedGroup(row, 'imoveis', fileName);
+                if (importType === 'moveis')
+                    mapped = mapDetailedGroup(row, 'moveis', fileName);
+                if (importType === 'movables')
+                    mapped = mapDetailedGroup(row, 'moveis', fileName);
+                if (importType === 'regional_uf')
+                    mapped = mapQuarterlyData(row, fileName);
+                if (importType === 'administrators')
+                    mapped = mapAdministrators(row, fileName);
+                if (mapped)
+                    rowsToInsert.push(mapped);
+            });
+        }
+        console.log(`Parsed ${rowsToInsert.length} rows.`);
         // BIGQUERY INSERTION
         if (rowsToInsert.length > 0) {
             const tableId = rowsToInsert[0].table;
-            // Ensure Infra (Create Dataset/Table if missing)
             await ensureInfrastructure(tableId);
-            // Add uploaded_at timestamp
             const fullDataset = rowsToInsert.map(r => (Object.assign(Object.assign({}, r.data), { uploaded_at: bigquery.timestamp(new Date()) })));
-            // BATCH INSERTION (Chunking to avoid 413 Request Too Large)
+            // BATCH INSERTION
             const BATCH_SIZE = 1000;
             for (let i = 0; i < fullDataset.length; i += BATCH_SIZE) {
                 const batch = fullDataset.slice(i, i + BATCH_SIZE);
@@ -332,20 +351,15 @@ exports.processFileUpload = functions.storage.object().onFinalize(async (object)
                 }
                 catch (batchErr) {
                     console.error(`[ERROR] Failed to insert batch ${i} - ${i + batch.length}`, (batchErr === null || batchErr === void 0 ? void 0 : batchErr.errors) || batchErr);
-                    // Decide: Throw to stop, or continue? 
-                    // Throwing ensures we don't have partial data marked as success.
                     throw batchErr;
                 }
             }
             console.log(`[SUCCESS] All ${fullDataset.length} rows inserted into ${DATASET_ID}.${tableId}`);
         }
         // 2. Success Report
-        // Fetch current doc to check if we already have a valid Reference Date (from Filename)
         const currentDoc = await controlRef.get();
         const currentData = currentDoc.data();
         let finalDate = normalizeToCompetence(detectedDate) || 'UNKNOWN';
-        // If the current record already has a valid YYYY-MM date (from the frontend parsing the filename),
-        // we should PRIORITIZE it over the CSV content date to avoid moving the file to a different month unexpectedly.
         if (currentData && currentData.referenceDate && currentData.referenceDate.match(/^\d{4}-\d{2}$/)) {
             console.log(`Keeping existing Reference Date from Filename: ${currentData.referenceDate}`);
             finalDate = currentData.referenceDate;
@@ -358,16 +372,15 @@ exports.processFileUpload = functions.storage.object().onFinalize(async (object)
         });
     }
     catch (err) {
-        console.error("BigQuery Insertion Error", err);
+        console.error("Processing Error", err);
         await controlRef.update({
             status: 'ERROR',
-            errorDetails: err.message || 'Erro na inserção do BigQuery'
+            errorDetails: err.message || 'Erro no processamento do arquivo'
         });
     }
-    // Cleanup
-    fs.unlinkSync(tempFilePath);
+    if (fs.existsSync(tempFilePath))
+        fs.unlinkSync(tempFilePath);
 });
-// --- MANAGEMENT FUNCTIONS ---
 exports.deleteFile = functions.https.onCall(async (data, context) => {
     var _a, _b;
     // Check Auth - Admin Only
@@ -380,18 +393,11 @@ exports.deleteFile = functions.https.onCall(async (data, context) => {
     const db = admin.firestore();
     const storage = admin.storage();
     try {
-        // 0. Get File Name to delete from BigQuery
-        // We can extract it from storagePath (e.g., "raw-uploads/filename.csv")
         const fileName = path.basename(storagePath);
         console.log(`Deleting data for file: ${fileName}`);
-        // 1. Delete from BigQuery Tables
-        // Attempt to delete from ALL tables where file_name matches
-        // This is robust to ensure cleanup. Tables might not have the column if older schema, but we will ignore specific errors or try-catch.
         const tables = Object.keys(SCHEMAS);
         for (const tableId of tables) {
             try {
-                // Check if table exists first to avoid error? Or just try delete.
-                // Safest is to try delete content.
                 const query = `DELETE FROM \`${DATASET_ID}.${tableId}\` WHERE file_name = @fileName`;
                 await bigquery.query({
                     query,
@@ -401,10 +407,9 @@ exports.deleteFile = functions.https.onCall(async (data, context) => {
                 console.log(`Deleted rows from ${tableId} for ${fileName}`);
             }
             catch (bqErr) {
-                console.warn(`Failed to delete from BQ table ${tableId} (maybe table missing or col missing):`, bqErr.message);
+                console.warn(`Failed to delete from BQ table ${tableId}:`, bqErr.message);
             }
         }
-        // 2. Delete from Storage
         try {
             await storage.bucket().file(storagePath).delete();
             console.log(`Deleted from storage: ${storagePath}`);
@@ -412,7 +417,6 @@ exports.deleteFile = functions.https.onCall(async (data, context) => {
         catch (e) {
             console.warn("Storage delete failed (maybe already gone):", e.message);
         }
-        // 3. Delete Control Record
         await db.collection('file_imports_control').doc(fileId).delete();
         console.log(`Deleted control doc: ${fileId}`);
         return { success: true };
@@ -424,7 +428,6 @@ exports.deleteFile = functions.https.onCall(async (data, context) => {
 });
 exports.reprocessFile = functions.https.onCall(async (data, context) => {
     var _a, _b;
-    // Check Auth - Admin Only
     if (!((_b = (_a = context.auth) === null || _a === void 0 ? void 0 : _a.token) === null || _b === void 0 ? void 0 : _b.admin)) {
         throw new functions.https.HttpsError('permission-denied', 'Admin access required');
     }
@@ -433,7 +436,6 @@ exports.reprocessFile = functions.https.onCall(async (data, context) => {
         throw new functions.https.HttpsError('invalid-argument', 'Missing storagePath');
     const storage = admin.storage();
     try {
-        // 1. Check if exists
         const [exists] = await storage.bucket().file(storagePath).exists();
         if (!exists)
             throw new functions.https.HttpsError('not-found', 'File not found in storage');
@@ -447,24 +449,15 @@ exports.reprocessFile = functions.https.onCall(async (data, context) => {
 });
 exports.resetSystemData = functions.https.onCall(async (data, context) => {
     var _a, _b;
-    // Check Auth - Admin Only
     if (!((_b = (_a = context.auth) === null || _a === void 0 ? void 0 : _a.token) === null || _b === void 0 ? void 0 : _b.admin)) {
         throw new functions.https.HttpsError('permission-denied', 'Admin access required');
     }
     const db = admin.firestore();
     try {
-        console.warn("INITIATING SYSTEM RESET - DELETING ALL IMPORTED DATA AND AI ANALYSES");
-        // 1. Drop BigQuery Tables (To enforce new Schema on recreation)
-        const tables = [
-            'series_consolidadas',
-            'grupos_detalhados',
-            'dados_trimestrais_uf',
-            'administradoras',
-            'segmentos'
-        ];
+        console.warn("INITIATING SYSTEM RESET");
+        const tables = Object.keys(SCHEMAS);
         for (const tableId of tables) {
             try {
-                // DROP TABLE IF EXISTS
                 const query = `DROP TABLE IF EXISTS \`${DATASET_ID}.${tableId}\``;
                 await bigquery.query({ query, location: LOCATION });
                 console.log(`Dropped table: ${tableId}`);
@@ -473,53 +466,189 @@ exports.resetSystemData = functions.https.onCall(async (data, context) => {
                 console.warn(`Failed to drop ${tableId}:`, bqErr.message);
             }
         }
-        // 2. Clear Firestore Control Collection (Import Logs)
-        // BATCH delete
         const deleteCollection = async (collPath) => {
-            const snapshot = await db.collection(collPath).limit(500).get(); // Limit for batch
+            const snapshot = await db.collection(collPath).limit(500).get();
             if (snapshot.empty)
                 return;
             const batch = db.batch();
             snapshot.docs.forEach(doc => batch.delete(doc.ref));
             await batch.commit();
             console.log(`Deleted batch of ${snapshot.size} from ${collPath}`);
-            // Recursively delete if more exist
             if (snapshot.size === 500)
                 await deleteCollection(collPath);
         };
         await deleteCollection('file_imports_control');
-        // 3. Clear AI Analyses
-        // Requested by user: "delete ai analyses performed with these data"
         await deleteCollection('ai_analyses');
-        // CRITICAL: DO NOT DELETE 'prompt_templates'
-        return { success: true, message: 'System data and AI history reset successfully. Tables dropped.' };
+        return { success: true, message: 'System data reset successfully. Tables dropped.' };
     }
     catch (error) {
         console.error("Reset System Error", error);
         throw new functions.https.HttpsError('internal', error.message);
     }
 });
-// ... (trend data)
-exports.getTrendData = functions.https.onCall(async (data, context) => {
+// --- DASHBOARD QUERY UPDATED ---
+exports.getDashboardData = functions.https.onCall(async (data, context) => {
+    var _a;
+    // UPDATED QUERY TO MATCH USER DEFINITIONS: Active Quotas, Volume, Vars
     const query = `
+    WITH Consolidated AS (
         SELECT
             data_base,
             codigo_segmento,
             ANY_VALUE(JSON_VALUE(metricas_raw, '$.Nome_do_segmento')) as nome_segmento,
             
+            -- Active Quotas
             SUM(
-                SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) + 
-                IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
-                IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
-            ) as total_quotas,
+                COALESCE(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64), 0) + 
+                COALESCE(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
+                COALESCE(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
+            ) as total_active_quotas,
 
+            -- Volume
             SUM(
                 (
-                    SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) + 
-                    IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
+                    COALESCE(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64), 0) + 
+                    COALESCE(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
+                    COALESCE(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
+                ) * COALESCE(SAFE_CAST(REPLACE(REPLACE(JSON_VALUE(metricas_raw, '$.Valor_médio_do_bem'), '.', ''), ',', '.') AS FLOAT64), 0)
+            ) as total_volume,
+
+            -- Taxa Adm (Media)
+            AVG(SAFE_CAST(REPLACE(REPLACE(JSON_VALUE(metricas_raw, '$.Taxa_de_administração'), '.', ''), ',', '.') AS FLOAT64)) as avg_admin_fee,
+
+            -- Inadimplência Numerator (Total)
+            SUM(
+                COALESCE(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
+                COALESCE(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
+            ) as total_default_quotas,
+
+            -- Inadimplência Numerator (Contempladas)
+            SUM(COALESCE(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0)) as total_default_contemplated,
+
+            -- Inadimplência Numerator (Não Contempladas)
+            SUM(COALESCE(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)) as total_default_non_contemplated,
+
+            -- Excluded Quotas
+            SUM(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_excluídas') AS INT64)) as total_excluded_quotas
+
+        FROM \`consorcio_data.series_consolidadas\`
+        GROUP BY data_base, codigo_segmento
+    ),
+    WithLag AS (
+        SELECT 
+            *,
+            LAG(total_active_quotas) OVER (PARTITION BY codigo_segmento ORDER BY data_base ASC) as prev_active_quotas,
+            LAG(total_volume) OVER (PARTITION BY codigo_segmento ORDER BY data_base ASC) as prev_volume,
+            LAG(avg_admin_fee) OVER (PARTITION BY codigo_segmento ORDER BY data_base ASC) as prev_admin_fee,
+            LAG(total_default_quotas) OVER (PARTITION BY codigo_segmento ORDER BY data_base ASC) as prev_default_quotas,
+            LAG(total_default_contemplated) OVER (PARTITION BY codigo_segmento ORDER BY data_base ASC) as prev_default_contemplated,
+            LAG(total_default_non_contemplated) OVER (PARTITION BY codigo_segmento ORDER BY data_base ASC) as prev_default_non_contemplated,
+            LAG(total_excluded_quotas) OVER (PARTITION BY codigo_segmento ORDER BY data_base ASC) as prev_excluded_quotas
+        FROM Consolidated
+    )
+    SELECT 
+        *,
+        SAFE_DIVIDE((total_volume), total_active_quotas) as calculated_ticket_medio,
+        SAFE_DIVIDE(total_default_quotas, total_active_quotas) * 100 as default_rate,
+        
+        -- VARIATIONS (%) - Current vs Previous
+        SAFE_DIVIDE((total_volume - prev_volume), prev_volume) * 100 as var_volume,
+        SAFE_DIVIDE((total_active_quotas - prev_active_quotas), prev_active_quotas) * 100 as var_active_quotas,
+        (avg_admin_fee - prev_admin_fee) as var_admin_fee,
+        (SAFE_DIVIDE(total_default_quotas, total_active_quotas) * 100) - (SAFE_DIVIDE(prev_default_quotas, prev_active_quotas) * 100) as var_default_rate,
+        SAFE_DIVIDE((total_excluded_quotas - prev_excluded_quotas), prev_excluded_quotas) * 100 as var_excluded_quotas
+
+    FROM WithLag
+    ORDER BY data_base DESC, codigo_segmento ASC
+    LIMIT 200
+    `;
+    try {
+        const [rows] = await bigquery.query({ query, location: LOCATION });
+        const latestDate = (_a = rows[0]) === null || _a === void 0 ? void 0 : _a.data_base;
+        const currentData = rows.filter(r => r.data_base === latestDate);
+        // General Totals
+        const totalVolume = currentData.reduce((acc, r) => acc + (Number(r.total_volume) || 0), 0);
+        const totalQuotas = currentData.reduce((acc, r) => acc + (Number(r.total_active_quotas) || 0), 0);
+        // Default Breakdown
+        const totalDefault = currentData.reduce((acc, r) => acc + (Number(r.total_default_quotas) || 0), 0);
+        const totalDefaultContemplated = currentData.reduce((acc, r) => acc + (Number(r.total_default_contemplated) || 0), 0);
+        const totalDefaultNonContemplated = currentData.reduce((acc, r) => acc + (Number(r.total_default_non_contemplated) || 0), 0);
+        const totalFeesSum = currentData.reduce((acc, r) => acc + ((Number(r.avg_admin_fee) || 0) * (Number(r.total_volume) || 0)), 0);
+        const avgFeeGeneral = totalVolume > 0 ? totalFeesSum / totalVolume : 0;
+        const totalExcluded = currentData.reduce((acc, r) => acc + (Number(r.total_excluded_quotas) || 0), 0);
+        // Previous Totals for General Variations
+        const prevVolume = currentData.reduce((acc, r) => acc + (Number(r.prev_volume) || 0), 0);
+        const prevQuotas = currentData.reduce((acc, r) => acc + (Number(r.prev_active_quotas) || 0), 0);
+        const prevDefault = currentData.reduce((acc, r) => acc + (Number(r.prev_default_quotas) || 0), 0);
+        const prevExcluded = currentData.reduce((acc, r) => acc + (Number(r.prev_excluded_quotas) || 0), 0);
+        // Weighted Admin Fee Prev
+        const prevFeesSum = currentData.reduce((acc, r) => acc + ((Number(r.prev_admin_fee) || 0) * (Number(r.prev_volume) || 0)), 0);
+        const prevAvgFee = prevVolume > 0 ? prevFeesSum / prevVolume : 0;
+        return {
+            summary: {
+                totalActiveQuotas: totalQuotas,
+                totalVolume: totalVolume,
+                avgTicket: totalQuotas > 0 ? totalVolume / totalQuotas : 0,
+                defaultRate: totalQuotas > 0 ? (totalDefault / totalQuotas) * 100 : 0,
+                excludedQuotas: totalExcluded,
+                avgAdminFee: avgFeeGeneral,
+                // Specific Default Breakdown
+                defaultContemplated: totalDefaultContemplated,
+                defaultNonContemplated: totalDefaultNonContemplated,
+                // Variations (General)
+                varVolume: prevVolume > 0 ? ((totalVolume - prevVolume) / prevVolume) * 100 : 0,
+                varQuotas: prevQuotas > 0 ? ((totalQuotas - prevQuotas) / prevQuotas) * 100 : 0,
+                varDefaultRate: (totalQuotas > 0 ? (totalDefault / totalQuotas) * 100 : 0) - (prevQuotas > 0 ? (prevDefault / prevQuotas) * 100 : 0),
+                varExcluded: prevExcluded > 0 ? ((totalExcluded - prevExcluded) / prevExcluded) * 100 : 0,
+                varAdminFee: avgFeeGeneral - prevAvgFee,
+                varTicket: (prevQuotas > 0 && totalQuotas > 0) ? ((totalVolume / totalQuotas) - (prevVolume / prevQuotas)) / (prevVolume / prevQuotas) * 100 : 0
+            },
+            segments: currentData.map(r => ({
+                id: r.codigo_segmento,
+                name: r.nome_segmento || `Segmento ${r.codigo_segmento}`,
+                volume: Number(r.total_volume),
+                quotas: Number(r.total_active_quotas),
+                ticket: Number(r.calculated_ticket_medio),
+                adminFee: Number(r.avg_admin_fee),
+                defaultRate: Number(r.default_rate),
+                excluded: Number(r.total_excluded_quotas),
+                // Segment Variations
+                varVolume: Number(r.var_volume || 0),
+                varQuotas: Number(r.var_active_quotas || 0),
+                varTicket: (Number(r.calculated_ticket_medio) - (Number(r.prev_volume) / Number(r.prev_active_quotas))) / (Number(r.prev_volume) / Number(r.prev_active_quotas)) * 100,
+                varAdminFee: Number(r.var_admin_fee || 0),
+                varDefaultRate: Number(r.var_default_rate || 0),
+                varExcluded: Number(r.var_excluded_quotas || 0)
+            })),
+            history: rows // Pass full history
+        };
+    }
+    catch (error) {
+        console.error("Dashboard Query Error", error);
+        throw new functions.https.HttpsError('internal', error.message);
+    }
+});
+// --- EXISTING FUNCTIONS PRESERVED ---
+exports.getTrendData = functions.https.onCall(async (data, context) => {
+    const query = `
+        SELECT
+            data_base,
+                codigo_segmento,
+                ANY_VALUE(JSON_VALUE(metricas_raw, '$.Nome_do_segmento')) as nome_segmento,
+
+                SUM(
+                    SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) +
+                    IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) +
                     IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
-                ) * SAFE_CAST(REPLACE(REPLACE(JSON_VALUE(metricas_raw, '$.Valor_médio_do_bem'), '.', ''), ',', '.') AS FLOAT64)
-            ) as total_volume
+                ) as total_quotas,
+
+                SUM(
+                    (
+                        SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) +
+                        IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) +
+                        IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
+                    ) * SAFE_CAST(REPLACE(REPLACE(JSON_VALUE(metricas_raw, '$.Valor_médio_do_bem'), '.', ''), ',', '.') AS FLOAT64)
+                ) as total_volume
 
         FROM \`consorcio_data.series_consolidadas\`
         GROUP BY data_base, codigo_segmento
@@ -570,17 +699,7 @@ exports.getAdministratorData = functions.https.onCall(async (data, context) => {
             SUM(
                 IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
                 IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
-            ) as totalDefaults,
-
-            -- Weighted Fees (Approx) - Sum(Tax * Active) / Sum(Active)
-            SUM(
-                SAFE_CAST(REPLACE(REPLACE(JSON_VALUE(t.metricas_raw, '$.Taxa_de_administração'), '.', ''), ',', '.') AS FLOAT64) * 
-                (
-                    SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) + 
-                    IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
-                    IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
-                )
-            ) as totalFeesWeighted
+            ) as totalDefaults
 
         FROM \`consorcio_data.series_consolidadas\` t
         CROSS JOIN MaxDate md
@@ -629,25 +748,6 @@ exports.getAdministratorDetail = functions.https.onCall(async (data, context) =>
                 IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
             ) as total_active,
 
-             -- KPIs for Average (Fee, Term)
-            SUM(
-               SAFE_CAST(REPLACE(REPLACE(JSON_VALUE(t.metricas_raw, '$.Taxa_de_administração'), '.', ''), ',', '.') AS FLOAT64) * 
-               (
-                    SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) + 
-                    IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
-                    IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
-               )
-            ) as total_fees_weighted,
-
-             SUM(
-               SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Prazo_do_grupo_em_meses') AS INT64) * 
-               (
-                    SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) + 
-                    IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
-                    IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
-               )
-            ) as total_term_weighted,
-
             SUM(
                 IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
                 IFNULL(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
@@ -676,7 +776,6 @@ exports.getAdministratorDetail = functions.https.onCall(async (data, context) =>
 });
 exports.getOperationalData = functions.https.onCall(async (data, context) => {
     const { mode, cnpj } = data;
-    // mode: 'market' (all admins aggregated) or 'detail' (specific admin by UF)
     if (mode === 'detail' && !cnpj) {
         throw new functions.https.HttpsError('invalid-argument', 'CNPJ required for detail mode');
     }
@@ -689,25 +788,12 @@ exports.getOperationalData = functions.https.onCall(async (data, context) => {
     )
     SELECT
         uf,
-        -- Flow (Quarter)
         SUM(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_adesões_no_trimestre') AS INT64)) as adesoes,
-        SUM(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_consorciados_excluídos_contemplados') AS INT64)) as dropouts_contemplated, 
-
-        (
-            SUM(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_consorciados_excluídos_contemplados') AS INT64)) + 
-            SUM(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_consorciados_excluídos_não_contemplados') AS INT64))
-        ) as total_dropouts,
-
-        -- Stock (Active)
         SUM(
             SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_consorciados_ativos_contemplados_por_lance') AS INT64) +
             SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_consorciados_ativos_contemplados_por_sorteio') AS INT64) +
             SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_consorciados_ativos_não_contemplados') AS INT64)
-        ) as total_active,
-
-        -- Mix
-        SUM(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_consorciados_ativos_contemplados_por_lance') AS INT64)) as stock_bid,
-        SUM(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_consorciados_ativos_contemplados_por_sorteio') AS INT64)) as stock_lottery
+        ) as total_active
 
     FROM \`consorcio_data.dados_trimestrais_uf\` t
     CROSS JOIN MaxDate md
@@ -718,42 +804,21 @@ exports.getOperationalData = functions.https.onCall(async (data, context) => {
         params.cnpj = cnpj;
     }
     else {
-        // Market Overview (Scatter) - Aggregated by Admin
         query = `
     WITH MaxDate AS (
         SELECT MAX(data_base) as max_date FROM \`consorcio_data.dados_trimestrais_uf\`
-    ),
-    LatestAdmins AS (
-        SELECT
-            SUBSTR(cnpj, 1, 8) as cnpj_raiz,
-            nome,
-            ROW_NUMBER() OVER(PARTITION BY SUBSTR(cnpj, 1, 8) ORDER BY data_base DESC) as rn
-        FROM \`consorcio_data.administradoras\`
     )
     SELECT
         t.cnpj_raiz,
-        COALESCE(ANY_VALUE(adm.nome), ANY_VALUE(JSON_VALUE(t.metricas_raw, '$.Nome_da_Administradora'))) as nome_reduzido,
-        
-        SUM(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_adesões_no_trimestre') AS INT64)) as adesoes,
-        
-        (
-            SUM(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_consorciados_excluídos_contemplados') AS INT64)) + 
-            SUM(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_consorciados_excluídos_não_contemplados') AS INT64))
-        ) as total_dropouts,
-
-        SUM(
-            SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_consorciados_ativos_contemplados_por_lance') AS INT64) +
-            SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_consorciados_ativos_contemplados_por_sorteio') AS INT64) +
-            SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_consorciados_ativos_não_contemplados') AS INT64)
-        ) as total_active
+        ANY_VALUE(JSON_VALUE(t.metricas_raw, '$.Nome_da_Administradora')) as nome_reduzido,
+        SUM(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_adesões_no_trimestre') AS INT64)) as adesoes
 
     FROM \`consorcio_data.dados_trimestrais_uf\` t
     CROSS JOIN MaxDate md
-    LEFT JOIN LatestAdmins adm ON adm.cnpj_raiz = t.cnpj_raiz AND adm.rn = 1
     WHERE t.data_base = md.max_date
     GROUP BY t.cnpj_raiz
-    HAVING total_active > 100
-    ORDER BY total_active DESC
+    HAVING adesoes > 0
+    ORDER BY adesoes DESC
 `;
     }
     try {
@@ -772,21 +837,6 @@ exports.getRegionalData = functions.https.onCall(async (data, context) => {
         )
         SELECT
             t.uf,
-            COUNT(*) as records_count,
-            
-            -- Acumulados (Stock)
-            SUM(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_consorciados_ativos_contemplados_por_lance') AS INT64)) as activeContemplatedBid,
-            SUM(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_consorciados_ativos_contemplados_por_sorteio') AS INT64)) as activeContemplatedLottery,
-            SUM(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_consorciados_ativos_não_contemplados') AS INT64)) as activeNonContemplated,
-            
-            -- Excluded (Stock)
-            SUM(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_consorciados_excluídos_contemplados') AS INT64)) as dropoutContemplated,
-            SUM(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_consorciados_excluídos_não_contemplados') AS INT64)) as dropoutNonContemplated,
-            
-            -- Flow (Quarter)
-            SUM(SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_adesões_no_trimestre') AS INT64)) as newAdhesionsQuarter,
-            
-            -- Total Active
             SUM(
                 SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_consorciados_ativos_contemplados_por_lance') AS INT64) +
                 SAFE_CAST(JSON_VALUE(t.metricas_raw, '$.Quantidade_de_consorciados_ativos_contemplados_por_sorteio') AS INT64) +
@@ -808,67 +858,18 @@ exports.getRegionalData = functions.https.onCall(async (data, context) => {
         throw new functions.https.HttpsError('internal', error.message);
     }
 });
-exports.getDashboardData = functions.https.onCall(async (data, context) => {
-    // Fallback query that doesn't depend on 'segmentos' table existence
-    const query = `
-        SELECT
-            data_base,
-            CAST(codigo_segmento AS STRING) as codigo_segmento,
-            ANY_VALUE(JSON_VALUE(metricas_raw, '$.Nome_do_segmento')) as tipo,
-            
-            SUM(
-                SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) + 
-                IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
-                IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
-            ) as total_active_quotas,
-
-            SUM(
-                (
-                    SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_em_dia') AS INT64) + 
-                    IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
-                    IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
-                ) * SAFE_CAST(REPLACE(REPLACE(JSON_VALUE(metricas_raw, '$.Valor_médio_do_bem'), '.', ''), ',', '.') AS FLOAT64)
-            ) as total_volume_estimated,
-
-            SUM(
-                IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_contempladas_inadimplentes') AS INT64), 0) + 
-                IFNULL(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_não_contempladas_inadimplentes') AS INT64), 0)
-            ) as total_default_quotas,
-
-            SUM(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_excluídas') AS INT64)) as total_dropouts,
-            
-            SUM(SAFE_CAST(JSON_VALUE(metricas_raw, '$.Quantidade_de_cotas_ativas_quitadas') AS INT64)) as total_quitadas
-
-        FROM \`consorcio_data.series_consolidadas\`
-        GROUP BY data_base, codigo_segmento
-        ORDER BY data_base ASC
-    `;
-    try {
-        const [rows] = await bigquery.query({ query, location: LOCATION });
-        return { data: rows };
-    }
-    catch (error) {
-        console.error("Dashboard Query Error", error);
-        throw new functions.https.HttpsError('internal', error.message);
-    }
-});
-// --- ACCESS CONTROL ---
 exports.setupAdmin = functions.https.onCall(async (data, context) => {
-    // SECURITY: checks for a hardcoded setup key to prevent abuse
-    // In production, this function should be deleted after use.
     const { email, password, setupKey } = data;
     if (setupKey !== 'INTEL_SETUP_2026') {
         throw new functions.https.HttpsError('permission-denied', 'Invalid Setup Key');
     }
     try {
-        // 1. Check if user exists
         let userRecord;
         try {
             userRecord = await admin.auth().getUserByEmail(email);
         }
         catch (e) {
             if (e.code === 'auth/user-not-found') {
-                // Create user
                 userRecord = await admin.auth().createUser({
                     email,
                     password,
@@ -880,7 +881,6 @@ exports.setupAdmin = functions.https.onCall(async (data, context) => {
                 throw e;
             }
         }
-        // 2. Set Custom Claims
         await admin.auth().setCustomUserClaims(userRecord.uid, { admin: true });
         return { success: true, message: `User ${email} is now an ADMIN.` };
     }
@@ -894,33 +894,5 @@ exports.checkAdminStatus = functions.https.onCall(async (data, context) => {
         return { isAdmin: false };
     const token = context.auth.token;
     return { isAdmin: !!token.admin };
-});
-exports.debugSetAdmin = functions.https.onRequest(async (req, res) => {
-    // Disable CORS for simplicity or enable if calling from browser console used fetch
-    res.set('Access-Control-Allow-Origin', '*');
-    const email = req.query.email;
-    const key = req.query.key;
-    if (key !== 'INTEL_DEBUG_FORCE') {
-        res.status(403).send('Forbidden');
-        return;
-    }
-    if (!email) {
-        res.status(400).send('Missing email');
-        return;
-    }
-    try {
-        const user = await admin.auth().getUserByEmail(email);
-        await admin.auth().setCustomUserClaims(user.uid, { admin: true });
-        // Verify
-        const updatedUser = await admin.auth().getUserByEmail(email);
-        res.json({
-            success: true,
-            message: `Admin claim forced for ${email}`,
-            claims: updatedUser.customClaims
-        });
-    }
-    catch (error) {
-        res.status(500).json({ error: error.message });
-    }
 });
 //# sourceMappingURL=index.js.map

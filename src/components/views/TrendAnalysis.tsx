@@ -22,11 +22,12 @@ const SEGMENT_COLORS: Record<string, string> = {
 
 const getSegName = (code: string | number): string => {
   const c = String(code);
-  if (c === '1') return `1 - ${String(BacenSegment.IMOVEIS)}`;
-  if (c === '2') return `2 - ${String(BacenSegment.VEICULOS_PESADOS)}`;
-  if (c === '3') return `3 - ${String(BacenSegment.VEICULOS_LEVES)}`;
-  if (c === '4') return `4 - ${String(BacenSegment.MOTOCICLETAS)}`;
-  if (c === '6') return `6 - ${String(BacenSegment.SERVICOS)}`;
+  if (c === '1') return `1 - ${BacenSegment[1]}`;
+  if (c === '2') return `2 - ${BacenSegment[2].replace('_', ' ')}`;
+  if (c === '3') return `3 - ${BacenSegment[3]}`;
+  if (c === '4') return `4 - ${BacenSegment[4]}`;
+  if (c === '5') return `5 - ${BacenSegment[5].replace(/_/g, ' ')}`;
+  if (c === '6') return `6 - ${BacenSegment[6].replace(/_/g, ' ')}`;
   return `${c} - Outros`;
 };
 

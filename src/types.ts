@@ -6,10 +6,10 @@
 export enum BacenSegment {
   IMOVEIS = 1,
   VEICULOS_PESADOS = 2,
-  VEICULOS_LEVES = 3,
+  AUTOMOVEIS = 3,
   MOTOCICLETAS = 4,
-  OUTROS_BENS = 5,
-  SERVICOS = 6
+  BENS_MOVEIS_DURAVEIS = 5,
+  SERVICOS_TURISTICOS = 6
 }
 
 // COLECAO: administradoras

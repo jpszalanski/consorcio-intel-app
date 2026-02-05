@@ -17,7 +17,8 @@
     "dependencies": {
         "@google-cloud/bigquery": "^8.1.1",
         "firebase-admin": "^11.8.0",
-        "firebase-functions": "^4.3.1"
+        "firebase-functions": "^4.3.1",
+        "read-excel-file": "^6.0.3"
     },
     "devDependencies": {
         "@typescript-eslint/eslint-plugin": "^5.12.0",
