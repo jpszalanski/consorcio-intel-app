@@ -13,7 +13,7 @@ import readXlsxFile from 'read-excel-file/node';
 const bigquery = new BigQuery();
 const DATASET_ID = 'consorcio_data';
 const FUNCTION_REGION = 'us-east1';
-const BQ_LOCATION = 'us-east1';
+const BQ_LOCATION = 'us-central1';
 setGlobalOptions({ region: FUNCTION_REGION });
 
 // --- SCHEMAS ---
@@ -239,7 +239,7 @@ const mapSegmentos = (row: any, fileName: string) => {
 
 // --- CLOUD FUNCTION ---
 
-export const processFileUpload = v1.region('us-east1').storage.object().onFinalize(async (object) => {
+export const processFileUpload = v1.region('us-central1').storage.object().onFinalize(async (object) => {
     // const object = event.data; // V2 style
     // V1 style: object is passed directly
     const filePath = object.name;
