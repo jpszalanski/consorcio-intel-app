@@ -77,6 +77,18 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isMob
               <LogIn size={14} /> Fazer Login
             </button>
           )}
+
+          {/* Discreet Status Indicators */}
+          <div className="mt-4 pt-3 border-t border-slate-800/30 grid grid-cols-2 gap-2">
+            <div className="flex items-center gap-1.5 opacity-60 hover:opacity-100 transition-opacity" title="Status API Gemini">
+              <div className={`h-1.5 w-1.5 rounded-full ${import.meta.env.VITE_GEMINI_API_KEY ? 'bg-green-500' : 'bg-red-500'}`}></div>
+              <span className="text-[10px] font-medium text-slate-400">AI {import.meta.env.VITE_GEMINI_API_KEY ? 'ON' : 'OFF'}</span>
+            </div>
+            <div className="flex items-center gap-1.5 opacity-60 hover:opacity-100 transition-opacity" title="Conexão Banco de Dados">
+              {dbStatus ? <Wifi size={10} className="text-green-500" /> : <WifiOff size={10} className="text-red-500" />}
+              <span className="text-[10px] font-medium text-slate-400">DB {dbStatus ? 'ON' : 'OFF'}</span>
+            </div>
+          </div>
         </div>
 
         <nav className="p-4 space-y-2 mt-2">
@@ -101,29 +113,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isMob
           })}
         </nav>
 
-        <div className="absolute bottom-0 w-full p-6 border-t border-slate-800 bg-slate-950/50">
-          <div className="rounded-xl bg-slate-800/50 p-4 border border-slate-700/50 space-y-3">
-            <div className="pt-3 border-t border-slate-700/50">
-              <h4 className="text-[10px] font-bold uppercase text-slate-500 mb-2 tracking-widest">Status da API</h4>
-              <div className="flex items-center gap-2">
-                <div className={`h-2 w-2 rounded-full ${import.meta.env.VITE_GEMINI_API_KEY ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
-                <span className="text-xs font-medium text-slate-300">
-                  {import.meta.env.VITE_GEMINI_API_KEY ? 'Gemini 3 Pro' : 'Chave Offline'}
-                </span>
-              </div>
-            </div>
 
-            <div className="pt-3 border-t border-slate-700/50">
-              <h4 className="text-[10px] font-bold uppercase text-slate-500 mb-2 tracking-widest">Banco de Dados</h4>
-              <div className="flex items-center gap-2">
-                {dbStatus ? <Wifi size={14} className="text-green-500" /> : <WifiOff size={14} className="text-red-500" />}
-                <span className={`text-xs font-medium ${dbStatus ? 'text-green-400' : 'text-red-400'}`}>
-                  {dbStatus ? 'Firestore Online' : 'Desconectado'}
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
       </aside>
     </>
   );

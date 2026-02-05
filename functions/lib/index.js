@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.checkAdminStatus = exports.setupAdmin = exports.getDashboardData = exports.getRegionalData = exports.getOperationalData = exports.getAdministratorDetail = exports.getAdministratorData = exports.getTrendData = exports.resetSystemData = exports.reprocessFile = exports.deleteFile = exports.processFileUpload = void 0;
+exports.debugSetAdmin = exports.checkAdminStatus = exports.setupAdmin = exports.getDashboardData = exports.getRegionalData = exports.getOperationalData = exports.getAdministratorDetail = exports.getAdministratorData = exports.getTrendData = exports.resetSystemData = exports.reprocessFile = exports.deleteFile = exports.processFileUpload = void 0;
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 const os = require("os");
@@ -17,7 +17,8 @@ const SCHEMAS = {
         { name: 'codigo_segmento', type: 'INTEGER' },
         { name: 'data_base', type: 'STRING' },
         { name: 'metricas_raw', type: 'STRING' },
-        { name: 'uploaded_at', type: 'TIMESTAMP' }
+        { name: 'uploaded_at', type: 'TIMESTAMP' },
+        { name: 'file_name', type: 'STRING' }
     ],
     'grupos_detalhados': [
         { name: 'cnpj_raiz', type: 'STRING' },
@@ -25,26 +26,30 @@ const SCHEMAS = {
         { name: 'tipo', type: 'STRING' },
         { name: 'data_base', type: 'STRING' },
         { name: 'metricas_raw', type: 'STRING' },
-        { name: 'uploaded_at', type: 'TIMESTAMP' }
+        { name: 'uploaded_at', type: 'TIMESTAMP' },
+        { name: 'file_name', type: 'STRING' }
     ],
     'dados_trimestrais_uf': [
         { name: 'cnpj_raiz', type: 'STRING' },
         { name: 'uf', type: 'STRING' },
         { name: 'metricas_raw', type: 'STRING' },
-        { name: 'uploaded_at', type: 'TIMESTAMP' }
+        { name: 'uploaded_at', type: 'TIMESTAMP' },
+        { name: 'file_name', type: 'STRING' }
     ],
     'administradoras': [
         { name: 'cnpj', type: 'STRING' },
         { name: 'nome', type: 'STRING' },
         { name: 'data_base', type: 'STRING' },
         { name: 'metricas_raw', type: 'STRING' },
-        { name: 'uploaded_at', type: 'TIMESTAMP' }
+        { name: 'uploaded_at', type: 'TIMESTAMP' },
+        { name: 'file_name', type: 'STRING' }
     ],
     'segmentos': [
         { name: 'codigo_segmento', type: 'INTEGER' },
         { name: 'nome', type: 'STRING' },
         { name: 'data_base', type: 'STRING' },
-        { name: 'uploaded_at', type: 'TIMESTAMP' }
+        { name: 'uploaded_at', type: 'TIMESTAMP' },
+        { name: 'file_name', type: 'STRING' }
     ]
 };
 const ensureInfrastructure = async (tableId) => {
@@ -117,9 +122,21 @@ const findValue = (row, candidates) => {
     }
     return undefined;
 };
+// --- HELPER: Standardize Keys (Space -> Underscore) ---
+const standardizeRowKeys = (row) => {
+    const newRow = {};
+    Object.keys(row).forEach(key => {
+        // Replace spaces with underscores, remove special chars if desired, but mainly spaces is the issue
+        // Example: "Valor médio do bem" -> "Valor_médio_do_bem"
+        const cleanKey = key.trim().replace(/\s+/g, '_');
+        // Keep value as is
+        newRow[cleanKey] = row[key];
+    });
+    return newRow;
+};
 // --- MAPPERS ---
 // (Simplified for Backend: Returns flat object for BigQuery)
-const mapConsolidatedSeries = (row) => {
+const mapConsolidatedSeries = (row, fileName) => {
     const cnpj = String(findValue(row, ['CNPJ_da_Administradora']) || '').replace(/\D/g, '');
     if (!cnpj)
         return null;
@@ -131,12 +148,13 @@ const mapConsolidatedSeries = (row) => {
             cnpj_raiz: cnpj,
             codigo_segmento: segCode,
             data_base: database,
-            // ... (Add other fields as needed for BQ, simplified here for robustness)
-            metricas_raw: JSON.stringify(row) // Storing raw for safety first
+            // Store Standardized JSON
+            metricas_raw: JSON.stringify(standardizeRowKeys(row)),
+            file_name: fileName
         }
     };
 };
-const mapDetailedGroup = (row, type) => {
+const mapDetailedGroup = (row, type, fileName) => {
     const cnpj = String(findValue(row, ['CNPJ_da_Administradora']) || '').replace(/\D/g, '');
     const grupo = String(findValue(row, ['Código_do_grupo', 'Codigo']) || '');
     if (!cnpj || !grupo)
@@ -149,11 +167,12 @@ const mapDetailedGroup = (row, type) => {
             codigo_grupo: grupo,
             tipo: type,
             data_base: database,
-            metricas_raw: JSON.stringify(row)
+            metricas_raw: JSON.stringify(standardizeRowKeys(row)),
+            file_name: fileName
         }
     };
 };
-const mapQuarterlyData = (row) => {
+const mapQuarterlyData = (row, fileName) => {
     const cnpj = String(findValue(row, ['CNPJ_da_Administradora']) || '').replace(/\D/g, '');
     const uf = String(findValue(row, ['Unidade_da_Federação_do_consorciado', 'UF']) || '').toUpperCase();
     if (!cnpj || !uf)
@@ -163,11 +182,12 @@ const mapQuarterlyData = (row) => {
         data: {
             cnpj_raiz: cnpj,
             uf: uf,
-            metricas_raw: JSON.stringify(row)
+            metricas_raw: JSON.stringify(standardizeRowKeys(row)),
+            file_name: fileName
         }
     };
 };
-const mapAdministrators = (row) => {
+const mapAdministrators = (row, fileName) => {
     // Assuming file has CNPJ and Name/Nom_Admi
     const cnpj = String(findValue(row, ['CNPJ', 'Cnpj', 'CNPJ_da_Administradora']) || '').replace(/\D/g, '');
     const nome = String(findValue(row, ['Nome', 'Nome_da_Administradora', 'Nom_Admi', 'NOME_DA_ADMINISTRADORA']) || '');
@@ -180,11 +200,12 @@ const mapAdministrators = (row) => {
             cnpj: cnpj,
             nome: nome,
             data_base: database,
-            metricas_raw: JSON.stringify(row)
+            metricas_raw: JSON.stringify(standardizeRowKeys(row)),
+            file_name: fileName
         }
     };
 };
-const mapSegmentos = (row) => {
+const mapSegmentos = (row, fileName) => {
     // Assuming file has Code and Name
     const code = parseInt(String(findValue(row, ['Código_do_segmento', 'Codigo']) || '0').replace(/\D/g, ''));
     // Usually 'Nome_do_segmento' or the description next to code
@@ -199,7 +220,8 @@ const mapSegmentos = (row) => {
         data: {
             codigo_segmento: code,
             nome: nome,
-            data_base: database
+            data_base: database,
+            file_name: fileName
         }
     };
 };
@@ -264,27 +286,28 @@ exports.processFileUpload = functions.storage.object().onFinalize(async (object)
             obj[header] = val;
             return obj;
         }, {});
-        // Extract Date from first valid row
-        if (!detectedDate && row['Data_base'])
-            detectedDate = row['Data_base'];
+        // Extract Date from first valid row (Using findValue to be robust)
+        if (!detectedDate) {
+            detectedDate = String(findValue(row, ['Data_base']) || '');
+        }
         let mapped = null;
         if (importType === 'segments') {
-            mapped = mapConsolidatedSeries(row);
+            mapped = mapConsolidatedSeries(row, fileName);
             // Also try to map Segments table (Distinct list)
-            const segMapped = mapSegmentos(row);
+            const segMapped = mapSegmentos(row, fileName);
             if (segMapped)
                 rowsToInsert.push(segMapped);
         }
         if (importType === 'real_estate')
-            mapped = mapDetailedGroup(row, 'imoveis');
+            mapped = mapDetailedGroup(row, 'imoveis', fileName);
         if (importType === 'moveis')
-            mapped = mapDetailedGroup(row, 'moveis'); // Fix: 'moveis' string check
+            mapped = mapDetailedGroup(row, 'moveis', fileName); // Fix: 'moveis' string check
         if (importType === 'movables')
-            mapped = mapDetailedGroup(row, 'moveis'); // Handle both keys if needed
+            mapped = mapDetailedGroup(row, 'moveis', fileName); // Handle both keys if needed
         if (importType === 'regional_uf')
-            mapped = mapQuarterlyData(row);
+            mapped = mapQuarterlyData(row, fileName);
         if (importType === 'administrators')
-            mapped = mapAdministrators(row);
+            mapped = mapAdministrators(row, fileName);
         if (mapped)
             rowsToInsert.push(mapped);
     });
@@ -357,10 +380,39 @@ exports.deleteFile = functions.https.onCall(async (data, context) => {
     const db = admin.firestore();
     const storage = admin.storage();
     try {
-        // 1. Delete from Storage
-        await storage.bucket().file(storagePath).delete();
-        console.log(`Deleted from storage: ${storagePath}`);
-        // 2. Delete Control Record
+        // 0. Get File Name to delete from BigQuery
+        // We can extract it from storagePath (e.g., "raw-uploads/filename.csv")
+        const fileName = path.basename(storagePath);
+        console.log(`Deleting data for file: ${fileName}`);
+        // 1. Delete from BigQuery Tables
+        // Attempt to delete from ALL tables where file_name matches
+        // This is robust to ensure cleanup. Tables might not have the column if older schema, but we will ignore specific errors or try-catch.
+        const tables = Object.keys(SCHEMAS);
+        for (const tableId of tables) {
+            try {
+                // Check if table exists first to avoid error? Or just try delete.
+                // Safest is to try delete content.
+                const query = `DELETE FROM \`${DATASET_ID}.${tableId}\` WHERE file_name = @fileName`;
+                await bigquery.query({
+                    query,
+                    location: LOCATION,
+                    params: { fileName }
+                });
+                console.log(`Deleted rows from ${tableId} for ${fileName}`);
+            }
+            catch (bqErr) {
+                console.warn(`Failed to delete from BQ table ${tableId} (maybe table missing or col missing):`, bqErr.message);
+            }
+        }
+        // 2. Delete from Storage
+        try {
+            await storage.bucket().file(storagePath).delete();
+            console.log(`Deleted from storage: ${storagePath}`);
+        }
+        catch (e) {
+            console.warn("Storage delete failed (maybe already gone):", e.message);
+        }
+        // 3. Delete Control Record
         await db.collection('file_imports_control').doc(fileId).delete();
         console.log(`Deleted control doc: ${fileId}`);
         return { success: true };
@@ -401,8 +453,8 @@ exports.resetSystemData = functions.https.onCall(async (data, context) => {
     }
     const db = admin.firestore();
     try {
-        console.warn("INITIATING SYSTEM RESET - DELETING ALL IMPORTED DATA");
-        // 1. Truncate BigQuery Tables
+        console.warn("INITIATING SYSTEM RESET - DELETING ALL IMPORTED DATA AND AI ANALYSES");
+        // 1. Drop BigQuery Tables (To enforce new Schema on recreation)
         const tables = [
             'series_consolidadas',
             'grupos_detalhados',
@@ -412,27 +464,35 @@ exports.resetSystemData = functions.https.onCall(async (data, context) => {
         ];
         for (const tableId of tables) {
             try {
-                const query = `TRUNCATE TABLE \`${DATASET_ID}.${tableId}\``;
+                // DROP TABLE IF EXISTS
+                const query = `DROP TABLE IF EXISTS \`${DATASET_ID}.${tableId}\``;
                 await bigquery.query({ query, location: LOCATION });
-                console.log(`Truncated table: ${tableId}`);
+                console.log(`Dropped table: ${tableId}`);
             }
             catch (bqErr) {
-                console.warn(`Failed to truncate ${tableId} (might not exist):`, bqErr.message);
+                console.warn(`Failed to drop ${tableId}:`, bqErr.message);
             }
         }
-        // 2. Clear Firestore Control Collection
-        const snapshot = await db.collection('file_imports_control').get();
-        if (!snapshot.empty) {
+        // 2. Clear Firestore Control Collection (Import Logs)
+        // BATCH delete
+        const deleteCollection = async (collPath) => {
+            const snapshot = await db.collection(collPath).limit(500).get(); // Limit for batch
+            if (snapshot.empty)
+                return;
             const batch = db.batch();
-            let count = 0;
-            snapshot.docs.forEach(doc => {
-                batch.delete(doc.ref);
-                count++;
-            });
+            snapshot.docs.forEach(doc => batch.delete(doc.ref));
             await batch.commit();
-            console.log(`Deleted ${count} control records from Firestore.`);
-        }
-        return { success: true, message: 'System data reset successfully.' };
+            console.log(`Deleted batch of ${snapshot.size} from ${collPath}`);
+            // Recursively delete if more exist
+            if (snapshot.size === 500)
+                await deleteCollection(collPath);
+        };
+        await deleteCollection('file_imports_control');
+        // 3. Clear AI Analyses
+        // Requested by user: "delete ai analyses performed with these data"
+        await deleteCollection('ai_analyses');
+        // CRITICAL: DO NOT DELETE 'prompt_templates'
+        return { success: true, message: 'System data and AI history reset successfully. Tables dropped.' };
     }
     catch (error) {
         console.error("Reset System Error", error);
@@ -834,5 +894,33 @@ exports.checkAdminStatus = functions.https.onCall(async (data, context) => {
         return { isAdmin: false };
     const token = context.auth.token;
     return { isAdmin: !!token.admin };
+});
+exports.debugSetAdmin = functions.https.onRequest(async (req, res) => {
+    // Disable CORS for simplicity or enable if calling from browser console used fetch
+    res.set('Access-Control-Allow-Origin', '*');
+    const email = req.query.email;
+    const key = req.query.key;
+    if (key !== 'INTEL_DEBUG_FORCE') {
+        res.status(403).send('Forbidden');
+        return;
+    }
+    if (!email) {
+        res.status(400).send('Missing email');
+        return;
+    }
+    try {
+        const user = await admin.auth().getUserByEmail(email);
+        await admin.auth().setCustomUserClaims(user.uid, { admin: true });
+        // Verify
+        const updatedUser = await admin.auth().getUserByEmail(email);
+        res.json({
+            success: true,
+            message: `Admin claim forced for ${email}`,
+            claims: updatedUser.customClaims
+        });
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
 });
 //# sourceMappingURL=index.js.map

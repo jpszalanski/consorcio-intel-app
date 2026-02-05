@@ -27,8 +27,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const unsubscribe = onAuthStateChanged(auth, async (u) => {
             setUser(u);
             if (u) {
-                // Refresh token to ensure claims are up to date
-                const tokenResult = await u.getIdTokenResult();
+                // FORCE REFRESH token to ensure claims are up to date
+                const tokenResult = await u.getIdTokenResult(true);
+                console.log("Current User Claims:", tokenResult.claims);
+                console.log("Is Admin Claim Present:", !!tokenResult.claims.admin);
                 setIsAdmin(!!tokenResult.claims.admin);
             } else {
                 setIsAdmin(false);
