@@ -53,8 +53,6 @@ export const ensureAuth = async (): Promise<User | null> => {
 
   if (user) return user;
 
-  if (user) return user;
-
   // REMOVED AUTO ANONYMOUS LOGIN
   // We want strict login for protected features. Public features use "allow read: if true" (no auth needed).
   return null;
