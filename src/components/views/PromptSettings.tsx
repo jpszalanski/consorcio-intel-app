@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { getFirestore, collection, getDocs, doc, setDoc } from 'firebase/firestore';
+import { collection, getDocs, doc, setDoc } from 'firebase/firestore';
 import { Save, RefreshCw, MessageSquare, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { initialPrompts } from '../../services/geminiService'; // We will export this from service
-
+import { db } from '../../services/firebase';
 interface PromptTemplate {
     id: string;
     label: string;
@@ -20,7 +20,6 @@ export const PromptSettings: React.FC = () => {
     const [saving, setSaving] = useState(false);
     const [message, setMessage] = useState<{ text: string, type: 'success' | 'error' } | null>(null);
 
-    const db = getFirestore();
 
     useEffect(() => {
         if (isAdmin) fetchPrompts();
