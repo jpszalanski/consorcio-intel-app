@@ -730,6 +730,10 @@ export const getTrendData = functions.https.onCall(async (request) => {
         const [rows] = await bigquery.query({ query, location: BQ_LOCATION });
         return { data: rows };
     } catch (error: any) {
+        if (error.message.includes('Not found') || error.code === 404) {
+            console.warn("Table not found (TrendData), returning empty.");
+            return { data: [] };
+        }
         console.error("Trend Query Error", error);
         throw new functions.https.HttpsError('internal', error.message);
     }
@@ -803,6 +807,10 @@ export const getAdministratorData = functions.https.onCall(async (request) => {
         const [rows] = await bigquery.query({ query, location: BQ_LOCATION });
         return { data: rows };
     } catch (error: any) {
+        if (error.message.includes('Not found') || error.code === 404) {
+            console.warn("Table not found (AdminData), returning empty.");
+            return { data: [] };
+        }
         console.error("Admin Query Error", error);
         throw new functions.https.HttpsError('internal', error.message);
     }
@@ -883,6 +891,10 @@ export const getAdministratorDetail = functions.https.onCall(async (request) => 
         });
         return { data: rows };
     } catch (error: any) {
+        if (error.message.includes('Not found') || error.code === 404) {
+            console.warn("Table not found (AdminDetail), returning empty.");
+            return { data: [] };
+        }
         console.error("Admin Detail Query Error", error);
         throw new functions.https.HttpsError('internal', error.message);
     }
@@ -941,6 +953,10 @@ export const getOperationalData = functions.https.onCall(async (request) => {
         const [rows] = await bigquery.query({ query, location: BQ_LOCATION, params });
         return { data: rows };
     } catch (error: any) {
+        if (error.message.includes('Not found') || error.code === 404) {
+            console.warn("Table not found (OperationalData), returning empty.");
+            return { data: [] };
+        }
         console.error("Operational Query Error", error);
         throw new functions.https.HttpsError('internal', error.message);
     }
@@ -970,6 +986,10 @@ export const getRegionalData = functions.https.onCall(async (request) => {
         const [rows] = await bigquery.query({ query, location: BQ_LOCATION });
         return { data: rows };
     } catch (error: any) {
+        if (error.message.includes('Not found') || error.code === 404) {
+            console.warn("Table not found (RegionalData), returning empty.");
+            return { data: [] };
+        }
         console.error("Regional Query Error", error);
         throw new functions.https.HttpsError('internal', error.message);
     }
