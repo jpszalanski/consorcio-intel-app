@@ -38,7 +38,7 @@ export const db = initializeFirestore(app, {
 export const storage = getStorage(app);
 
 // Inicializa Functions (us-central1)
-export const functions = getFunctions(app, 'us-east1');
+export const functions = getFunctions(app, 'us-central1');
 
 // Função auxiliar para garantir autenticação antes de chamadas ao Firestore
 export const ensureAuth = async (): Promise<User | null> => {

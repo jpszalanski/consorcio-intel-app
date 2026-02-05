@@ -12,7 +12,7 @@ import readXlsxFile from 'read-excel-file/node';
 
 const bigquery = new BigQuery();
 const DATASET_ID = 'consorcio_data';
-const FUNCTION_REGION = 'us-east1';
+const FUNCTION_REGION = 'us-central1';
 const BQ_LOCATION = 'us-central1';
 setGlobalOptions({ region: FUNCTION_REGION });
 
