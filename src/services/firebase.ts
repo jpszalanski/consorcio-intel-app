@@ -1,11 +1,7 @@
 
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged, User } from 'firebase/auth';
-import {
-  initializeFirestore,
-  persistentLocalCache,
-  persistentMultipleTabManager
-} from 'firebase/firestore';
+import { getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 import { getFunctions } from 'firebase/functions';
 
@@ -26,13 +22,9 @@ const app = initializeApp(firebaseConfig);
 // Inicializa Auth
 export const auth = getAuth(app);
 
-// Inicializa Firestore com persistência offline robusta
-// Isso evita o erro "Could not reach Cloud Firestore backend" em conexões instáveis
-export const db = initializeFirestore(app, {
-  localCache: persistentLocalCache({
-    tabManager: persistentMultipleTabManager()
-  })
-});
+// Inicializa Firestore
+export const db = getFirestore(app);
+
 
 // Inicializa Storage
 export const storage = getStorage(app);
