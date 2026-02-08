@@ -4,6 +4,7 @@ import { PeriodSelector, PeriodOption } from '../common/PeriodSelector';
 import { AppDataStore } from '../../types';
 import { httpsCallable } from 'firebase/functions';
 import { functions } from '../../services/firebase';
+import { useAuth } from '../../hooks/useAuth';
 import { Loader2 } from 'lucide-react';
 
 
@@ -16,6 +17,7 @@ interface AdminRankingRow {
 }
 
 export const CompetitiveAnalysis: React.FC = () => {
+  const { user } = useAuth();
   const [period, setPeriod] = useState<PeriodOption>('all');
   const [rankingData, setRankingData] = useState<AdminRankingRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -23,10 +25,11 @@ export const CompetitiveAnalysis: React.FC = () => {
   // Fetch Ranking Data (Reuse Administrator Data logic)
   useEffect(() => {
     const fetchRanking = async () => {
+      if (!user) return;
       try {
 
-        const getRanking = httpsCallable<unknown, { data: AdminRankingRow[] }>(functions, 'getAdministratorData');
-        const result = await getRanking();
+        const getRanking = httpsCallable<{ administratorId: string }, { data: AdminRankingRow[] }>(functions, 'getAdministratorData');
+        const result = await getRanking({ administratorId: user.uid });
         setRankingData(result.data.data);
       } catch (error) {
         console.error("Error fetching competitive data", error);
@@ -34,8 +37,8 @@ export const CompetitiveAnalysis: React.FC = () => {
         setLoading(false);
       }
     };
-    fetchRanking();
-  }, []);
+    if (user) fetchRanking();
+  }, [user]);
 
   const marketMetrics = useMemo(() => {
     if (rankingData.length === 0) return [];

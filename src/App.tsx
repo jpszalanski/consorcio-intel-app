@@ -2,12 +2,15 @@ import React, { useState, useEffect } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { DashboardOverview } from './components/views/DashboardOverview';
 import { AdministratorAnalysis } from './components/views/AdministratorAnalysis';
+import { AdministratorRanking } from './components/views/AdministratorRanking';
+import { AdministratorComparison } from './components/views/AdministratorComparison';
 import { OperationalPerformance } from './components/views/OperationalPerformance';
 import { CompetitiveAnalysis } from './components/views/CompetitiveAnalysis';
 import { TrendAnalysis } from './components/views/TrendAnalysis';
 import { RegionalAnalysis } from './components/views/RegionalAnalysis';
 import { DataImport } from './components/views/DataImport';
 import { FileControlView } from './components/views/FileControlView';
+import { EvolutionDashboard } from './components/views/EvolutionDashboard';
 import { PromptSettings } from './components/views/PromptSettings';
 import { LoginView } from './components/views/LoginView';
 import { AuthProvider, useAuth } from './hooks/useAuth';
@@ -16,6 +19,8 @@ import { dataStore } from './services/dataStore';
 
 import { ErrorBoundary } from 'react-error-boundary';
 import { ErrorFallback } from './components/common/ErrorBoundary';
+
+
 
 function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -46,6 +51,14 @@ function App() {
     }
   }, [user, activeTab, loading]);
 
+  useEffect(() => {
+    const handleTabChange = (e: CustomEvent) => {
+      setActiveTab(e.detail);
+    };
+    window.addEventListener('changeTab', handleTabChange as EventListener);
+    return () => window.removeEventListener('changeTab', handleTabChange as EventListener);
+  }, []);
+
   const renderContent = () => {
     if (isLoading || loading) {
       return (
@@ -66,8 +79,14 @@ function App() {
           switch (activeTab) {
             case 'dashboard':
               return <DashboardOverview />;
+            case 'evolution':
+              return <EvolutionDashboard />;
             case 'admin_analysis':
               return <AdministratorAnalysis />;
+            case 'ranking':
+              return <AdministratorRanking />;
+            case 'comparison':
+              return <AdministratorComparison />;
             case 'operational':
               return <OperationalPerformance />;
             case 'competitive':
@@ -82,6 +101,9 @@ function App() {
               return <FileControlView />;
             case 'settings':
               return <PromptSettings />;
+
+
+
             default:
               return (
                 <div className="flex flex-col items-center justify-center h-[60vh] text-slate-400">

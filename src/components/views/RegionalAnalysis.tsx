@@ -4,6 +4,7 @@ import { AppDataStore } from '../../types';
 import { Map as MapIcon, Loader2, Database } from 'lucide-react';
 import { httpsCallable } from 'firebase/functions';
 import { functions } from '../../services/firebase';
+import { useAuth } from '../../hooks/useAuth';
 
 
 
@@ -20,15 +21,17 @@ interface RegionalViewData {
 }
 
 export const RegionalAnalysis: React.FC = () => {
+  const { user } = useAuth();
   const [aggregatedData, setAggregatedData] = useState<RegionalViewData[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchData = async () => {
+      if (!user) return;
       try {
 
-        const getRegional = httpsCallable<unknown, { data: RegionalViewData[] }>(functions, 'getRegionalData');
-        const result = await getRegional();
+        const getRegional = httpsCallable<{ administratorId: string }, { data: RegionalViewData[] }>(functions, 'getRegionalData');
+        const result = await getRegional({ administratorId: user.uid });
         setAggregatedData(result.data.data);
       } catch (error) {
         console.error("Error fetching regional data", error);
@@ -36,8 +39,8 @@ export const RegionalAnalysis: React.FC = () => {
         setLoading(false);
       }
     };
-    fetchData();
-  }, []);
+    if (user) fetchData();
+  }, [user]);
 
   if (loading) {
     return (

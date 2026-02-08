@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { LayoutDashboard, TrendingUp, Map, PieChart, Activity, Menu, Database, Building2, Wifi, WifiOff, FileText, LogOut, LogIn, Users } from 'lucide-react';
+import { LayoutDashboard, TrendingUp, Map, PieChart, Activity, Menu, Database, Building2, Wifi, WifiOff, FileText, LogOut, LogIn, Users, Trophy, GitCompareArrows } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 
 interface SidebarProps {
@@ -14,17 +14,22 @@ interface SidebarProps {
 export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isMobileOpen, setIsMobileOpen, dbStatus = false }) => {
   const { user, isAdmin, signOut } = useAuth();
 
+
   const menuItems = [
     { id: 'dashboard', label: 'Visão Geral', icon: LayoutDashboard },
+    { id: 'evolution', label: 'Painel Evolutivo', icon: TrendingUp },
     { id: 'admin_analysis', label: 'Análise por Adm.', icon: Building2 },
-    { id: 'operational', label: 'Performance Oper.', icon: Activity }, // Novo Item
+    { id: 'ranking', label: 'Ranking Administradoras', icon: Trophy },
+    { id: 'comparison', label: 'Comparar Administradoras', icon: GitCompareArrows },
+    { id: 'operational', label: 'Performance Oper.', icon: Activity },
     { id: 'competitive', label: 'Posicionamento Competitivo', icon: PieChart },
     { id: 'trends', label: 'Tendências de Mercado', icon: TrendingUp },
     { id: 'regional', label: 'Análise Regional', icon: Map },
     { id: 'import', label: 'Importar Dados', icon: Database },
     { id: 'file_control', label: 'Controle Arquivos', icon: FileText },
-    { id: 'settings', label: 'Configurações AI', icon: Menu }, // Using Menu icon for now or MessageSquare if imported
+    { id: 'settings', label: 'Configurações AI', icon: Menu },
   ];
+
 
   return (
     <>
@@ -38,18 +43,18 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isMob
 
       {/* Sidebar */}
       <aside
-        className={`fixed top-0 left-0 z-30 h-full w-64 bg-slate-900 text-white transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:block ${isMobileOpen ? 'translate-x-0' : '-translate-x-full'
+        className={`fixed top-0 left-0 z-30 h-full w-64 bg-slate-900 text-white transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:flex flex flex-col ${isMobileOpen ? 'translate-x-0' : '-translate-x-full'
           }`}
       >
-        <div className="flex h-16 items-center justify-between px-6 bg-slate-950 border-b border-slate-800/50">
+        <div className="flex-none h-16 flex items-center justify-between px-6 bg-slate-950 border-b border-slate-800/50">
           <span className="text-xl font-bold tracking-tight text-blue-400">Consórcio<span className="text-white">Intel</span></span>
           <button onClick={() => setIsMobileOpen(false)} className="lg:hidden text-slate-400">
             <Menu size={20} />
           </button>
         </div>
 
-        {/* User Profile - Top */}
-        <div className="px-6 py-4 border-b border-slate-800/30">
+        {/* User Profile - Top - Fixed */}
+        <div className="flex-none px-6 py-4 border-b border-slate-800/30">
           {user ? (
             <div className="flex flex-col gap-2">
               <div className="flex items-center gap-2 text-slate-300 text-xs truncate">
@@ -91,9 +96,16 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isMob
           </div>
         </div>
 
-        <nav className="p-4 space-y-2 mt-2">
-          {menuItems.map((item) => {
+        <nav className="flex-1 overflow-y-auto p-4 space-y-2 mt-2 custom-scrollbar">
+          {menuItems.filter(item => {
+            // Admin-only items
+            if (['import', 'file_control', 'settings'].includes(item.id)) {
+              return isAdmin;
+            }
+            return true;
+          }).map((item) => {
             const Icon = item.icon;
+
             return (
               <button
                 key={item.id}
@@ -112,7 +124,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isMob
             );
           })}
         </nav>
-
 
       </aside>
     </>

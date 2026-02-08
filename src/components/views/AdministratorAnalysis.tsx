@@ -54,7 +54,7 @@ const getSegName = (code: string | number): string => {
 import { useAuth } from '../../hooks/useAuth';
 
 export const AdministratorAnalysis: React.FC = () => {
-  const { isAdmin } = useAuth();
+  const { isAdmin, user } = useAuth();
   const [viewMode, setViewMode] = useState<'ranking' | 'detail' | 'comparison'>('ranking');
   const [adminAId, setAdminAId] = useState<string>('');
   const [adminBId, setAdminBId] = useState<string>('');
@@ -76,10 +76,11 @@ export const AdministratorAnalysis: React.FC = () => {
   // 1. Fetch Ranking on Mount
   useEffect(() => {
     const fetchRanking = async () => {
+      if (!user) return;
       try {
 
-        const getRanking = httpsCallable<unknown, { data: AdminRankingRow[] }>(functions, 'getAdministratorData');
-        const result = await getRanking();
+        const getRanking = httpsCallable<{ administratorId: string }, { data: AdminRankingRow[] }>(functions, 'getAdministratorData');
+        const result = await getRanking({ administratorId: user.uid });
         setRankingData(result.data.data);
       } catch (error) {
         console.error("Error fetching admin ranking", error);
@@ -87,26 +88,26 @@ export const AdministratorAnalysis: React.FC = () => {
         setLoadingRanking(false);
       }
     };
-    fetchRanking();
-  }, []);
+    if (user) fetchRanking();
+  }, [user]);
 
   // 2. Fetch Detail & History when Admin Selected
   useEffect(() => {
-    if (!adminAId) return;
+    if (!adminAId || !user) return;
 
     const fetchDetail = async () => {
       setLoadingDetail(true);
       try {
 
-        const getDetail = httpsCallable<{ cnpj: string }, { data: AdminDetailRow[] }>(functions, 'getAdministratorDetail');
+        const getDetail = httpsCallable<{ cnpj: string; administratorId: string }, { data: AdminDetailRow[] }>(functions, 'getAdministratorDetail');
 
         // Fetch A
-        const resultA = await getDetail({ cnpj: adminAId });
+        const resultA = await getDetail({ cnpj: adminAId, administratorId: user.uid });
         setDetailRows(resultA.data.data);
 
         // Fetch B if in comparison
         if (viewMode === 'comparison' && adminBId) {
-          const resultB = await getDetail({ cnpj: adminBId });
+          const resultB = await getDetail({ cnpj: adminBId, administratorId: user.uid });
           setDetailRowsB(resultB.data.data);
         } else {
           setDetailRowsB([]);
@@ -143,7 +144,7 @@ export const AdministratorAnalysis: React.FC = () => {
 
     fetchDetail();
     fetchHistory();
-  }, [adminAId, adminBId, viewMode]);
+  }, [adminAId, adminBId, viewMode, user]);
 
   // 3. Compute Metrics Helper
   const calculateMetrics = (rows: AdminDetailRow[], cnpjInput: string) => {
@@ -653,7 +654,7 @@ export const AdministratorAnalysis: React.FC = () => {
               className="px-3 py-2 border border-slate-200 rounded-lg text-sm"
             >
               <option value="">Selecione...</option>
-              {rankingData.filter(r => r.cnpj_raiz !== adminAId).map(admin => (
+              {[...rankingData].filter(r => r.cnpj_raiz !== adminAId).sort((a, b) => (a.nome_reduzido || '').localeCompare(b.nome_reduzido || '')).map(admin => (
                 <option key={admin.cnpj_raiz} value={admin.cnpj_raiz}>{admin.nome_reduzido}</option>
               ))}
             </select>
@@ -747,7 +748,7 @@ export const AdministratorAnalysis: React.FC = () => {
                   className="w-full pl-10 pr-4 py-3 border border-slate-200 rounded-xl bg-white focus:ring-2 focus:ring-blue-500 shadow-sm appearance-none outline-none transition-all"
                 >
                   <option value="">Trocar Administradora...</option>
-                  {rankingData.map(admin => (
+                  {[...rankingData].sort((a, b) => (a.nome_reduzido || '').localeCompare(b.nome_reduzido || '')).map(admin => (
                     <option key={admin.cnpj_raiz} value={admin.cnpj_raiz}>{admin.nome_reduzido || 'Desconhecida'}</option>
                   ))}
                 </select>

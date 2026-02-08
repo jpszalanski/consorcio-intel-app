@@ -17,7 +17,7 @@ if (admin.apps.length === 0) {
 
 async function createAdminUser() {
     const email = 'jefersonszalanski@gmail.com';
-    const password = 'YOUR_PASSWORD_HERE'; // User asked for 123456, but in script I'll put placeholder or implementation
+    const password = '123456'; // User asked for 123456, but in script I'll put placeholder or implementation
 
     try {
         // 1. Check if user exists

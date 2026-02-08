@@ -7,6 +7,7 @@ import { BrainCircuit, TrendingUp, Filter, DollarSign, Users, BarChart2, Loader2
 import { PeriodSelector, PeriodOption } from '../common/PeriodSelector';
 import { httpsCallable } from 'firebase/functions';
 import { functions } from '../../services/firebase';
+import { useAuth } from '../../hooks/useAuth';
 
 
 
@@ -46,6 +47,7 @@ const getSegName = (code: string | number): string => {
 
 
 export const TrendAnalysis: React.FC = () => {
+  const { user } = useAuth();
   const [rawData, setRawData] = useState<TrendRow[]>([]);
   const [loadingData, setLoadingData] = useState(true);
 
@@ -58,10 +60,11 @@ export const TrendAnalysis: React.FC = () => {
   // Fetch Data from BigQuery
   useEffect(() => {
     const fetchData = async () => {
+      if (!user) return;
       try {
 
-        const getTrend = httpsCallable<unknown, { data: TrendRow[] }>(functions, 'getTrendData');
-        const result = await getTrend();
+        const getTrend = httpsCallable<{ administratorId: string }, { data: TrendRow[] }>(functions, 'getTrendData');
+        const result = await getTrend({ administratorId: user.uid });
         setRawData(result.data.data);
       } catch (error) {
         console.error("Error fetching trend data", error);
@@ -69,8 +72,8 @@ export const TrendAnalysis: React.FC = () => {
         setLoadingData(false);
       }
     };
-    fetchData();
-  }, []);
+    if (user) fetchData();
+  }, [user]);
 
   // Aggregation Logic (Pivot for Chart)
   const pivotData = useMemo(() => {

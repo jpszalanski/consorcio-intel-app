@@ -8,6 +8,7 @@ import {
 import { Activity, ArrowRightLeft, TrendingDown, Search, Scale, Loader2 } from 'lucide-react';
 import { httpsCallable } from 'firebase/functions';
 import { functions } from '../../services/firebase';
+import { useAuth } from '../../hooks/useAuth';
 
 
 
@@ -20,9 +21,9 @@ interface MarketScatterRow {
 }
 
 interface AdminDetailRow {
-  uf: string;
+  segment_code: number | string;
+  segment_name: string;
   adesoes: number | string;
-  dropouts_contemplated: number | string;
   total_dropouts: number | string;
   total_active: number | string;
   stock_bid: number | string;
@@ -30,6 +31,7 @@ interface AdminDetailRow {
 }
 
 export const OperationalPerformance: React.FC = () => {
+  const { user } = useAuth();
   const [selectedAdminId, setSelectedAdminId] = useState<string>('');
 
   const [scatterData, setScatterData] = useState<MarketScatterRow[]>([]);
@@ -41,10 +43,13 @@ export const OperationalPerformance: React.FC = () => {
   // 1. Fetch Market Overview (Scatter)
   useEffect(() => {
     const fetchMarket = async () => {
+      // Add check for user
+      if (!user) return;
+
       try {
 
-        const getOps = httpsCallable<{ mode: string }, { data: MarketScatterRow[] }>(functions, 'getOperationalData');
-        const result = await getOps({ mode: 'market' });
+        const getOps = httpsCallable<{ mode: string; administratorId: string }, { data: MarketScatterRow[] }>(functions, 'getOperationalData');
+        const result = await getOps({ mode: 'market', administratorId: user.uid });
         setScatterData(result.data.data);
       } catch (error) {
         console.error("Error fetching market ops", error);
@@ -52,18 +57,19 @@ export const OperationalPerformance: React.FC = () => {
         setLoadingScatter(false);
       }
     };
-    fetchMarket();
-  }, []);
+
+    if (user) fetchMarket();
+  }, [user]);
 
   // 2. Fetch Detail
   useEffect(() => {
-    if (!selectedAdminId) return;
+    if (!selectedAdminId || !user) return;
     const fetchDetail = async () => {
       setLoadingDetail(true);
       try {
 
-        const getOps = httpsCallable<{ mode: string; cnpj: string }, { data: AdminDetailRow[] }>(functions, 'getOperationalData');
-        const result = await getOps({ mode: 'detail', cnpj: selectedAdminId });
+        const getOps = httpsCallable<{ mode: string; cnpj: string; administratorId: string }, { data: AdminDetailRow[] }>(functions, 'getOperationalData');
+        const result = await getOps({ mode: 'detail', cnpj: selectedAdminId, administratorId: user.uid });
         setDetailRows(result.data.data);
       } catch (error) {
         console.error("Error fetching detail ops", error);
@@ -72,7 +78,7 @@ export const OperationalPerformance: React.FC = () => {
       }
     };
     fetchDetail();
-  }, [selectedAdminId]);
+  }, [selectedAdminId, user]);
 
   // Transform Scatter Data for Chart
   const marketScatterChartData = useMemo(() => {
@@ -113,7 +119,7 @@ export const OperationalPerformance: React.FC = () => {
       sumLottery += (Number(r.stock_lottery) || 0);
 
       return {
-        region: r.uf,
+        region: r.segment_name || `Segmento ${r.segment_code}`,
         adhesions: ads,
         dropouts: drops
       };
@@ -161,7 +167,7 @@ export const OperationalPerformance: React.FC = () => {
             className="block w-full pl-10 pr-4 py-3 border border-slate-200 rounded-xl bg-white focus:ring-2 focus:ring-blue-500 shadow-sm appearance-none cursor-pointer"
           >
             <option value="">Visão Geral do Mercado (Scatter)</option>
-            {scatterData.map(admin => (
+            {[...scatterData].sort((a, b) => (a.nome_reduzido || '').localeCompare(b.nome_reduzido || '')).map(admin => (
               <option key={admin.cnpj_raiz} value={admin.cnpj_raiz}>{admin.nome_reduzido || 'Desconhecida'}</option>
             ))}
           </select>
@@ -270,7 +276,7 @@ export const OperationalPerformance: React.FC = () => {
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-slate-100">
-                <h3 className="font-bold text-slate-800 mb-6">Fluxo Líquido por Região</h3>
+                <h3 className="font-bold text-slate-800 mb-6">Fluxo Líquido por Segmento</h3>
                 <div className="h-80 w-full">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={selectedMetrics.regionChartData} layout="vertical" margin={{ left: 20 }}>

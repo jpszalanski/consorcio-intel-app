@@ -112,14 +112,36 @@ export const FileControlView: React.FC = () => {
                     <p className="text-slate-500 mt-2">Visão anual da integridade dos dados.</p>
                 </div>
 
-                <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-200">
-                    <select
-                        value={selectedYear}
-                        onChange={e => setSelectedYear(e.target.value)}
-                        className="bg-transparent border-none font-bold text-xl text-slate-800 focus:ring-0 cursor-pointer"
+                <div className="flex items-center gap-4">
+                    <button
+                        onClick={async () => {
+                            if (!confirm('ATENÇÃO: Isso apagará TODOS os dados do BigQuery e recriará as tabelas. Deseja continuar?')) return;
+                            setLoading(true);
+                            try {
+                                const reset = httpsCallable(functions, 'resetSystemData');
+                                await reset();
+                                alert('Sistema resetado com sucesso! A tabela base_segmentos foi criada.');
+                            } catch (error: any) {
+                                console.error(error);
+                                alert('Erro ao resetar sistema: ' + error.message);
+                            } finally {
+                                setLoading(false);
+                            }
+                        }}
+                        className="flex items-center gap-2 px-4 py-2 bg-red-100 text-red-700 hover:bg-red-200 rounded-xl font-bold transition-colors text-sm"
                     >
-                        {getYearOptions().map(y => <option key={y} value={y}>{y}</option>)}
-                    </select>
+                        <Trash2 size={16} /> Resetar Sistema
+                    </button>
+
+                    <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-200">
+                        <select
+                            value={selectedYear}
+                            onChange={e => setSelectedYear(e.target.value)}
+                            className="bg-transparent border-none font-bold text-xl text-slate-800 focus:ring-0 cursor-pointer"
+                        >
+                            {getYearOptions().map(y => <option key={y} value={y}>{y}</option>)}
+                        </select>
+                    </div>
                 </div>
             </div>
 
