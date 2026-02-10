@@ -1,4 +1,5 @@
 import { ensureAuth } from './firebase';
+export * from './dataMapper';
 
 export const dataStore = {
   checkConnection: async (): Promise<boolean> => {
