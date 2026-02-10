@@ -1,6 +1,6 @@
 
 import React, { useState, useCallback } from 'react';
-import { UploadCloud, FileSpreadsheet, CheckCircle2, AlertCircle, Loader2, HardDrive } from 'lucide-react';
+import { UploadCloud, FileSpreadsheet, CheckCircle2, AlertCircle, Loader2, HardDrive, X } from 'lucide-react';
 import { uploadFileToStorage } from '../../services/storageService';
 import { db } from '../../services/firebase';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
@@ -177,17 +177,18 @@ export const BigQueryImport: React.FC = () => {
                 <h3 className="text-lg font-bold text-slate-700 mb-2">Arraste planilhas aqui</h3>
                 <p className="text-slate-500 mb-6">Suporta arquivos .CSV e .XLSX (Segmentos, Grupos, Cotas)</p>
 
-                <label className="inline-block">
-                    <span className="bg-slate-900 text-white px-6 py-3 rounded-xl font-bold hover:bg-slate-800 cursor-pointer transition-colors shadow-lg">
+                <label className="inline-block relative">
+                    <span className="bg-slate-900 text-white px-6 py-3 rounded-xl font-bold hover:bg-slate-800 cursor-pointer transition-colors shadow-lg flex items-center gap-2 focus-within:ring-4 focus-within:ring-blue-500/30">
+                        <UploadCloud size={20} />
                         Selecionar Arquivos
+                        <input
+                            type="file"
+                            multiple
+                            accept=".csv,.xlsx,.xls"
+                            className="sr-only"
+                            onChange={handleFileSelect}
+                        />
                     </span>
-                    <input
-                        type="file"
-                        multiple
-                        accept=".csv,.xlsx,.xls"
-                        className="hidden"
-                        onChange={handleFileSelect}
-                    />
                 </label>
             </div>
 
@@ -220,7 +221,13 @@ export const BigQueryImport: React.FC = () => {
                                 <div className="w-32">
                                     {item.status === 'pending' && <span className="text-xs font-bold text-slate-400 uppercase">Pendente</span>}
                                     {item.status === 'uploading' && (
-                                        <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
+                                        <div
+                                            className="w-full bg-slate-200 rounded-full h-2 overflow-hidden"
+                                            role="progressbar"
+                                            aria-valuenow={item.progress}
+                                            aria-valuemin={0}
+                                            aria-valuemax={100}
+                                        >
                                             <div className="bg-blue-500 h-full transition-all duration-300" style={{ width: `${item.progress}%` }}></div>
                                         </div>
                                     )}
@@ -239,9 +246,11 @@ export const BigQueryImport: React.FC = () => {
                                 {item.status !== 'uploading' && (
                                     <button
                                         onClick={() => removeFile(idx)}
-                                        className="text-slate-400 hover:text-red-500 p-2"
+                                        className="text-slate-400 hover:text-red-500 p-2 rounded-full hover:bg-red-50 transition-colors"
+                                        aria-label={`Remover ${item.file.name}`}
+                                        title="Remover arquivo"
                                     >
-                                        &times;
+                                        <X size={20} />
                                     </button>
                                 )}
                             </div>
