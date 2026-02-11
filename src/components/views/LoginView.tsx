@@ -38,7 +38,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
         <div className="flex flex-col items-center justify-center min-h-[60vh] animate-fade-in">
             <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200 w-full max-w-md">
                 <div className="flex flex-col items-center mb-6">
-                    <div className="p-3 bg-blue-50 rounded-full text-blue-600 mb-3">
+                    <div className="p-3 bg-blue-50 rounded-full text-blue-600 mb-3" aria-hidden="true">
                         <Lock size={32} />
                     </div>
                     <h2 className="text-2xl font-bold text-slate-800">Acesso Restrito</h2>
@@ -46,33 +46,45 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                 </div>
 
                 {error && (
-                    <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-red-700 text-sm">
-                        <AlertCircle size={16} />
+                    <div
+                        className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-red-700 text-sm"
+                        role="alert"
+                        id="login-error"
+                    >
+                        <AlertCircle size={16} aria-hidden="true" />
                         {error}
                     </div>
                 )}
 
                 <form onSubmit={handleLogin} className="space-y-4">
                     <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
+                        <label htmlFor="email" className="block text-sm font-medium text-slate-700 mb-1">Email</label>
                         <input
+                            id="email"
                             type="email"
                             value={email}
                             onChange={(e) => setEmail(e.target.value)}
-                            className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                            className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                             placeholder="seu@email.com"
                             required
+                            disabled={loading}
+                            aria-invalid={!!error}
+                            aria-describedby={error ? "login-error" : undefined}
                         />
                     </div>
                     <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">Senha</label>
+                        <label htmlFor="password" className="block text-sm font-medium text-slate-700 mb-1">Senha</label>
                         <input
+                            id="password"
                             type="password"
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
-                            className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                            className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                             placeholder="••••••••"
                             required
+                            disabled={loading}
+                            aria-invalid={!!error}
+                            aria-describedby={error ? "login-error" : undefined}
                         />
                     </div>
                     <button
@@ -80,7 +92,12 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                         disabled={loading}
                         className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl shadow-lg shadow-blue-900/10 transition-all flex justify-center items-center disabled:opacity-70"
                     >
-                        {loading ? <Loader2 className="animate-spin" size={20} /> : 'Entrar'}
+                        {loading ? (
+                            <>
+                                <Loader2 className="animate-spin" size={20} aria-hidden="true" />
+                                <span className="sr-only">Carregando...</span>
+                            </>
+                        ) : 'Entrar'}
                     </button>
                 </form>
             </div>
