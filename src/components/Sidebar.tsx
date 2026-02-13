@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { LayoutDashboard, TrendingUp, Map, PieChart, Activity, Menu, Database, Building2, Wifi, WifiOff, FileText, LogOut, LogIn, Users, Trophy, GitCompareArrows } from 'lucide-react';
+import { LayoutDashboard, TrendingUp, Map, PieChart, Activity, Menu, X, Database, Building2, Wifi, WifiOff, FileText, LogOut, LogIn, Users, Trophy, GitCompareArrows } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 
 interface SidebarProps {
@@ -48,8 +48,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isMob
       >
         <div className="flex-none h-16 flex items-center justify-between px-6 bg-slate-950 border-b border-slate-800/50">
           <span className="text-xl font-bold tracking-tight text-blue-400">Consórcio<span className="text-white">Intel</span></span>
-          <button onClick={() => setIsMobileOpen(false)} className="lg:hidden text-slate-400">
-            <Menu size={20} />
+          <button
+            onClick={() => setIsMobileOpen(false)}
+            className="lg:hidden text-slate-400"
+            aria-label="Fechar menu lateral"
+          >
+            <X size={20} />
           </button>
         </div>
 
@@ -113,6 +117,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isMob
                   setActiveTab(item.id);
                   setIsMobileOpen(false);
                 }}
+                aria-current={activeTab === item.id ? 'page' : undefined}
                 className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-all ${activeTab === item.id
                   ? 'bg-blue-600 text-white shadow-xl shadow-blue-900/50 scale-105'
                   : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'
