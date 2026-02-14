@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { LayoutDashboard, TrendingUp, Map, PieChart, Activity, Menu, Database, Building2, Wifi, WifiOff, FileText, LogOut, LogIn, Users, Trophy, GitCompareArrows } from 'lucide-react';
+import { LayoutDashboard, TrendingUp, Map, PieChart, Activity, Menu, Database, Building2, Wifi, WifiOff, FileText, LogOut, LogIn, Users, Trophy, GitCompareArrows, X } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 
 interface SidebarProps {
@@ -48,8 +48,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isMob
       >
         <div className="flex-none h-16 flex items-center justify-between px-6 bg-slate-950 border-b border-slate-800/50">
           <span className="text-xl font-bold tracking-tight text-blue-400">Consórcio<span className="text-white">Intel</span></span>
-          <button onClick={() => setIsMobileOpen(false)} className="lg:hidden text-slate-400">
-            <Menu size={20} />
+          <button
+            onClick={() => setIsMobileOpen(false)}
+            className="lg:hidden text-slate-400"
+            aria-label="Fechar menu lateral"
+          >
+            <X size={20} />
           </button>
         </div>
 
@@ -85,11 +89,19 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isMob
 
           {/* Discreet Status Indicators */}
           <div className="mt-4 pt-3 border-t border-slate-800/30 grid grid-cols-2 gap-2">
-            <div className="flex items-center gap-1.5 opacity-60 hover:opacity-100 transition-opacity" title="Status API Gemini">
+            <div
+              className="flex items-center gap-1.5 opacity-60 hover:opacity-100 transition-opacity"
+              title="Status API Gemini"
+              aria-label={`Status da Inteligência Artificial: ${import.meta.env.VITE_GEMINI_API_KEY ? 'Ativo' : 'Inativo'}`}
+            >
               <div className={`h-1.5 w-1.5 rounded-full ${import.meta.env.VITE_GEMINI_API_KEY ? 'bg-green-500' : 'bg-red-500'}`}></div>
               <span className="text-[10px] font-medium text-slate-400">AI {import.meta.env.VITE_GEMINI_API_KEY ? 'ON' : 'OFF'}</span>
             </div>
-            <div className="flex items-center gap-1.5 opacity-60 hover:opacity-100 transition-opacity" title="Conexão Banco de Dados">
+            <div
+              className="flex items-center gap-1.5 opacity-60 hover:opacity-100 transition-opacity"
+              title="Conexão Banco de Dados"
+              aria-label={`Status do Banco de Dados: ${dbStatus ? 'Conectado' : 'Desconectado'}`}
+            >
               {dbStatus ? <Wifi size={10} className="text-green-500" /> : <WifiOff size={10} className="text-red-500" />}
               <span className="text-[10px] font-medium text-slate-400">DB {dbStatus ? 'ON' : 'OFF'}</span>
             </div>
@@ -113,6 +125,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isMob
                   setActiveTab(item.id);
                   setIsMobileOpen(false);
                 }}
+                aria-current={activeTab === item.id ? 'page' : undefined}
                 className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-all ${activeTab === item.id
                   ? 'bg-blue-600 text-white shadow-xl shadow-blue-900/50 scale-105'
                   : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'
