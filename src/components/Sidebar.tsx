@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { LayoutDashboard, TrendingUp, Map, PieChart, Activity, Menu, Database, Building2, Wifi, WifiOff, FileText, LogOut, LogIn, Users, Trophy, GitCompareArrows } from 'lucide-react';
+import { LayoutDashboard, TrendingUp, Map, PieChart, Activity, Menu, X, Database, Building2, Wifi, WifiOff, FileText, LogOut, LogIn, Users, Trophy, GitCompareArrows } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 
 interface SidebarProps {
@@ -48,8 +48,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isMob
       >
         <div className="flex-none h-16 flex items-center justify-between px-6 bg-slate-950 border-b border-slate-800/50">
           <span className="text-xl font-bold tracking-tight text-blue-400">Consórcio<span className="text-white">Intel</span></span>
-          <button onClick={() => setIsMobileOpen(false)} className="lg:hidden text-slate-400">
-            <Menu size={20} />
+          <button
+            onClick={() => setIsMobileOpen(false)}
+            className="lg:hidden text-slate-400 hover:text-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded-lg p-1"
+            aria-label="Fechar menu lateral"
+          >
+            <X size={20} />
           </button>
         </div>
 
@@ -67,7 +71,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isMob
                 )}
                 <button
                   onClick={() => signOut()}
-                  className="flex items-center gap-1 text-slate-500 hover:text-white text-[10px] transition-colors ml-auto"
+                  className="flex items-center gap-1 text-slate-500 hover:text-white text-[10px] transition-colors ml-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
                   title="Sair"
                 >
                   <LogOut size={12} /> Sair
@@ -77,7 +81,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isMob
           ) : (
             <button
               onClick={() => setActiveTab('login')}
-              className="w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-white text-xs py-2 rounded-lg transition-colors border border-slate-700"
+              className="w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-white text-xs py-2 rounded-lg transition-colors border border-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
             >
               <LogIn size={14} /> Fazer Login
             </button>
@@ -105,6 +109,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isMob
             return true;
           }).map((item) => {
             const Icon = item.icon;
+            const isActive = activeTab === item.id;
 
             return (
               <button
@@ -113,7 +118,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isMob
                   setActiveTab(item.id);
                   setIsMobileOpen(false);
                 }}
-                className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-all ${activeTab === item.id
+                title={item.label}
+                aria-current={isActive ? 'page' : undefined}
+                className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${isActive
                   ? 'bg-blue-600 text-white shadow-xl shadow-blue-900/50 scale-105'
                   : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'
                   }`}
