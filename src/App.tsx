@@ -132,7 +132,8 @@ function App() {
         <header className="lg:hidden flex items-center h-16 px-6 bg-white border-b border-slate-200">
           <button
             onClick={() => setIsMobileOpen(true)}
-            className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg"
+            className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
+            aria-label="Open menu"
           >
             <Menu size={24} />
           </button>
