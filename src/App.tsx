@@ -133,8 +133,9 @@ function App() {
           <button
             onClick={() => setIsMobileOpen(true)}
             className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg"
+            aria-label="Open mobile menu"
           >
-            <Menu size={24} />
+            <Menu size={24} aria-hidden="true" />
           </button>
           <span className="ml-4 font-bold text-slate-900">Consórcio Intel</span>
         </header>
